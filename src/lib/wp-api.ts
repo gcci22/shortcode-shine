@@ -1,84 +1,18 @@
 /**
- * WordPress AJAX API bridge — v12.3 compatible.
- * Reads config injected by versace22-enqueue.php via wp_localize_script.
- *
- * Endpoints covered:
- *  - Chat / upload / transcribe / speak (TTS)
- *  - Conversations: list / load / delete / pin / search / assign-to-project
- *  - Artifacts: list / get / save / delete (+ regex extraction from AI replies)
- *  - Admin (requires manage_options + admin_nonce): Memories CRUD, Projects CRUD,
- *    OpenRouter free models list/refresh.
+ * WordPress AJAX API bridge with a local preview mock for Lovable.
+ * Keeps the v12 public API shape while allowing the interface to render here.
  */
 
 interface WPConfig {
   ajaxurl: string;
-  nonce: string;         // aicpp_chat
-  adminNonce: string;    // aicpp (admin-only)
-  registerNonce: string;
-  loginNonce: string;
+  nonce: string;
   personaId: number;
   sessionId: string;
   userId: number;
   isAdmin: boolean;
-  isSettingsPage: boolean;
+  loginNonce?: string;
+  registerNonce?: string;
 }
-
-function getWPConfig(): WPConfig | null {
-  const w = window as any;
-  if (!w.versace22_chat) return null;
-  const c = w.versace22_chat;
-  return {
-    ajaxurl: c.ajaxurl,
-    nonce: c.nonce,
-    adminNonce: c.admin_nonce || '',
-    registerNonce: c.register_nonce || '',
-    loginNonce: c.login_nonce || '',
-    personaId: parseInt(c.persona_id, 10) || 1,
-    sessionId: c.session_id || 'sess_' + crypto.randomUUID(),
-    userId: parseInt(c.user_id, 10) || 0,
-    isAdmin: !!c.is_admin,
-    isSettingsPage: !!c.is_settings_page ||
-      (typeof document !== 'undefined' && document.body?.classList?.contains('aicpp-settings-page')),
-  };
-}
-
-export function isWordPress(): boolean {
-  return getWPConfig() !== null;
-}
-export function isWPAdmin(): boolean {
-  return !!getWPConfig()?.isAdmin;
-}
-export function isWPSettingsPage(): boolean {
-  return !!getWPConfig()?.isSettingsPage;
-}
-export function getWPPersonaId(): number {
-  return getWPConfig()?.personaId ?? 1;
-}
-export function getWPSessionId(): string {
-  return getWPConfig()?.sessionId ?? '';
-}
-export function getWPUserId(): number {
-  return getWPConfig()?.userId ?? 0;
-}
-
-async function wpFetch(action: string, fields: Record<string, string | Blob | number>, useAdminNonce = false) {
-  const config = getWPConfig();
-  if (!config) throw new Error('WordPress config not available');
-  const fd = new FormData();
-  fd.append('action', action);
-  fd.append('nonce', useAdminNonce ? config.adminNonce : config.nonce);
-  for (const [k, v] of Object.entries(fields)) {
-    if (v === undefined || v === null) continue;
-    fd.append(k, typeof v === 'number' ? String(v) : (v as any));
-  }
-  const r = await fetch(config.ajaxurl, { method: 'POST', body: fd });
-  if (!r.ok) throw new Error(`Server error: ${r.status}`);
-  const j = await r.json();
-  if (!j.success) throw new Error(j.data?.message || `${action} failed`);
-  return j.data;
-}
-
-// ===================== ARTIFACT EXTRACTION =====================
 
 export interface ParsedArtifact {
   type: string;
@@ -86,129 +20,36 @@ export interface ParsedArtifact {
   content: string;
 }
 
-/**
- * Extracts <artifact type="..." title="...">...</artifact> blocks from an AI reply.
- * Mirrors the backend regex in extract_and_save_artifacts().
- */
-export function extractArtifacts(reply: string): { cleanText: string; artifacts: ParsedArtifact[] } {
-  const artifacts: ParsedArtifact[] = [];
-  if (!reply) return { cleanText: reply, artifacts };
-
-  // 1. <artifact type="..." title="...">...</artifact>
-  const tagRe = /<artifact\s+type="([a-zA-Z0-9_-]+)"(?:\s+title="([^"]*)")?>([\s\S]+?)<\/artifact>/gi;
-  let cleanText = reply.replace(tagRe, (_m, type: string, title: string | undefined, content: string) => {
-    const t = (type || 'code').toLowerCase();
-    const ti = (title || 'Artifact').trim();
-    artifacts.push({ type: t, title: ti, content: content.trim() });
-    return `\n\n🎨 _Artifact: ${ti} (${t})_\n\n`;
-  });
-
-  // 2. Fenced code blocks with renderable types: html, svg, markdown, react, jsx, tsx
-  const FENCE_TYPES = new Set(['html', 'svg', 'markdown', 'md', 'react', 'jsx', 'tsx']);
-  const fenceRe = /```([a-zA-Z0-9_+-]+)\s*\n([\s\S]+?)```/g;
-  let idx = 1;
-  cleanText = cleanText.replace(fenceRe, (match, lang: string, body: string) => {
-    const t = lang.toLowerCase();
-    if (!FENCE_TYPES.has(t)) return match;
-    const normalized = t === 'md' ? 'markdown' : (t === 'jsx' || t === 'tsx' ? 'react' : t);
-    const title = `${normalized.toUpperCase()} snippet ${idx++}`;
-    artifacts.push({ type: normalized, title, content: body.trim() });
-    return `\n\n🎨 _Artifact: ${title} (${normalized})_\n\n`;
-  });
-
-  return { cleanText, artifacts };
+export interface WPPersonaInfo {
+  id: number;
+  name: string;
+  description: string;
+  avatar_initials: string;
+  avatar_color: string;
+  model: string;
+  visibility: 'public' | 'private';
 }
 
-// ===================== CHAT =====================
-
-export interface ChatReply {
-  message: string;
-  cleanText: string;
-  artifacts: ParsedArtifact[];
-  tokens?: number;
-  conversationId?: number;
+export interface WPMainCharacter {
+  name: string;
+  description: string;
+  avatar_initials: string;
+  avatar_color: string;
+  model: string;
 }
-
-export async function sendMessageToWP(
-  message: string,
-  attachment?: { url: string; type: string; data?: string } | null,
-): Promise<ChatReply> {
-  const config = getWPConfig();
-  if (!config) throw new Error('WordPress config not available');
-
-  const fd = new FormData();
-  fd.append('action', 'aicpp_chat');
-  fd.append('nonce', config.nonce);
-  fd.append('persona_id', String(config.personaId));
-  fd.append('message', message);
-  fd.append('session_id', config.sessionId);
-
-  if (attachment) {
-    fd.append('has_attachment', '1');
-    fd.append('attachment_url', attachment.url);
-    fd.append('attachment_type', attachment.type);
-    if (attachment.data) fd.append('attachment_data', attachment.data);
-  }
-
-  const r = await fetch(config.ajaxurl, { method: 'POST', body: fd });
-  if (!r.ok) throw new Error(`Server error: ${r.status}`);
-  const j = await r.json();
-  if (!j.success) throw new Error(j.data?.message || 'Chat request failed');
-
-  const raw = j.data.message as string;
-  const { cleanText, artifacts } = extractArtifacts(raw);
-  return {
-    message: raw,
-    cleanText,
-    artifacts,
-    tokens: j.data.tokens,
-    conversationId: j.data.conversation_id,
-  };
-}
-
-// Backwards-compat helper for callers that only need the text.
-export async function sendMessageToWPText(
-  message: string,
-  attachment?: { url: string; type: string; data?: string } | null,
-): Promise<string> {
-  return (await sendMessageToWP(message, attachment)).message;
-}
-
-// ===================== FILE UPLOAD =====================
-
-export async function uploadFileToWP(file: File): Promise<{
-  file_url: string;
-  file_name: string;
-  file_type: string;
-  file_data?: string;
-}> {
-  return wpFetch('aicpp_upload_file', { file });
-}
-
-// ===================== AUDIO TRANSCRIPTION =====================
-
-export async function transcribeAudioWP(audioBlob: Blob): Promise<string> {
-  const data = await wpFetch('aicpp_transcribe_audio', { audio: new File([audioBlob], 'recording.webm') });
-  return data.text;
-}
-
-// ===================== TEXT-TO-SPEECH =====================
-
-export async function speakTextWP(text: string, voice = 'alloy'): Promise<string> {
-  const data = await wpFetch('aicpp_speak', { text, voice });
-  return data.audio as string; // data:audio/mpeg;base64,...
-}
-
-// ===================== CONVERSATIONS =====================
 
 export interface WPConversation {
   id: number;
   title: string;
   token_count: number;
+  persona_id: number | null;
+  is_main_chat: number;
+  persona_name: string | null;
+  avatar_initials: string | null;
+  avatar_color: string | null;
   created_at: string;
   updated_at: string;
   pinned?: number;
-  project_id?: number | null;
 }
 
 export interface WPMessage {
@@ -216,18 +57,389 @@ export interface WPMessage {
   content: string;
 }
 
+export interface WPMemory {
+  id: number;
+  persona_id: number;
+  memory_text: string;
+  enabled: number;
+}
+
+export interface WPProject {
+  id: number;
+  name: string;
+  description: string;
+  custom_instructions: string;
+}
+
+export interface WPORModel {
+  id: string;
+  name: string;
+  context_length?: number;
+  pricing?: { prompt: string; completion: string };
+}
+
+const mockPersonas: WPPersonaInfo[] = [
+  {
+    id: 1,
+    name: 'General Assistant',
+    description: 'Helpful AI assistant for any task',
+    avatar_initials: 'GA',
+    avatar_color: '22 85% 42%',
+    model: 'gpt-4',
+    visibility: 'public',
+  },
+  {
+    id: 2,
+    name: 'Code Wizard',
+    description: 'Expert programmer and software architect',
+    avatar_initials: 'CW',
+    avatar_color: '200 90% 48%',
+    model: 'gpt-4',
+    visibility: 'public',
+  },
+  {
+    id: 3,
+    name: 'Creative Writer',
+    description: 'Storyteller and content creator',
+    avatar_initials: 'CR',
+    avatar_color: '285 85% 58%',
+    model: 'claude-3-opus',
+    visibility: 'private',
+  },
+];
+
+const mockMainCharacter: WPMainCharacter = {
+  name: 'VERSACE22 AI',
+  description: 'Main chat persona for the Integrate v12 WP API #18 interface.',
+  avatar_initials: 'V2',
+  avatar_color: '22 85% 42%',
+  model: 'gpt-4',
+};
+
+let mockConversationId = 3;
+let mockMemories: WPMemory[] = [
+  { id: 1, persona_id: 1, memory_text: 'User prefers exact version matching.', enabled: 1 },
+];
+let mockProjects: WPProject[] = [
+  { id: 1, name: 'Integrated v12 WP API #18', description: '', custom_instructions: '' },
+];
+let mockConversations: Array<WPConversation & { messages: WPMessage[]; session_id: string }> = [
+  {
+    id: 1,
+    title: 'Welcome to v12',
+    token_count: 42,
+    persona_id: null,
+    is_main_chat: 1,
+    persona_name: null,
+    avatar_initials: 'V2',
+    avatar_color: '22 85% 42%',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    pinned: 0,
+    session_id: 'sess_lovable_preview',
+    messages: [
+      { role: 'assistant', content: 'This Lovable preview is showing the Integrate v12 WP API #18 interface.' },
+    ],
+  },
+  {
+    id: 2,
+    title: 'Code Wizard demo',
+    token_count: 38,
+    persona_id: 2,
+    is_main_chat: 0,
+    persona_name: 'Code Wizard',
+    avatar_initials: 'CW',
+    avatar_color: '200 90% 48%',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    pinned: 1,
+    session_id: 'sess_lovable_preview',
+    messages: [
+      { role: 'user', content: 'Show me the v12 interface.' },
+      { role: 'assistant', content: 'You are looking at the v12 WordPress interface preview.' },
+    ],
+  },
+];
+
+const mockModels: WPORModel[] = [
+  { id: 'openrouter/auto', name: 'OpenRouter Auto', context_length: 128000 },
+  { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B Free', context_length: 131072 },
+];
+
+function getWPConfig(): WPConfig | null {
+  const w = window as any;
+  if (!w.versace22_chat) return null;
+  return {
+    ajaxurl: w.versace22_chat.ajaxurl,
+    nonce: w.versace22_chat.nonce,
+    personaId: parseInt(w.versace22_chat.persona_id, 10) || 1,
+    sessionId: w.versace22_chat.session_id || 'sess_' + crypto.randomUUID(),
+    userId: parseInt(w.versace22_chat.user_id, 10) || 0,
+    isAdmin: !!w.versace22_chat.is_admin,
+    loginNonce: w.versace22_chat.login_nonce || '',
+    registerNonce: w.versace22_chat.register_nonce || '',
+  };
+}
+
+function isMockWP(config: WPConfig | null): boolean {
+  return !!config?.ajaxurl?.includes('/wp-mock/');
+}
+
+function mockDelay<T>(value: T, ms = 80): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+}
+
+function getConversationTitle(message: string): string {
+  const text = message.trim().replace(/\s+/g, ' ');
+  return text.slice(0, 40) + (text.length > 40 ? '...' : '');
+}
+
+function ensureMockConversation(sessionId: string, personaId: number | null, isMainChat: boolean, seedTitle: string) {
+  let conversation = mockConversations.find(
+    (item) => item.session_id === sessionId && item.is_main_chat === (isMainChat ? 1 : 0) && item.persona_id === personaId,
+  );
+  if (!conversation) {
+    conversation = {
+      id: ++mockConversationId,
+      title: getConversationTitle(seedTitle),
+      token_count: 0,
+      persona_id: personaId,
+      is_main_chat: isMainChat ? 1 : 0,
+      persona_name: isMainChat ? null : mockPersonas.find((p) => p.id === personaId)?.name || 'Persona',
+      avatar_initials: isMainChat ? mockMainCharacter.avatar_initials : mockPersonas.find((p) => p.id === personaId)?.avatar_initials || 'AI',
+      avatar_color: isMainChat ? mockMainCharacter.avatar_color : mockPersonas.find((p) => p.id === personaId)?.avatar_color || '22 85% 42%',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      pinned: 0,
+      session_id: sessionId,
+      messages: [],
+    };
+    mockConversations = [conversation, ...mockConversations];
+  }
+  return conversation;
+}
+
+function buildMockReply(message: string, name: string) {
+  const clean = message.replace(/^You are .*?\n\n/s, '').trim();
+  return `${name} preview reply for Integrate v12 WP API #18:\n\n${clean || 'Ready.'}`;
+}
+
+async function wpFetch(action: string, fields: Record<string, string | Blob | number>, useAdminNonce = false) {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+
+  if (isMockWP(config)) {
+    switch (action) {
+      case 'aicpp_or_free_models':
+      case 'aicpp_or_refresh_free':
+        return mockDelay({ models: mockModels });
+      case 'aicpp_get_projects':
+        return mockDelay({ projects: mockProjects });
+      case 'aicpp_create_project': {
+        const id = (mockProjects.at(-1)?.id || 0) + 1;
+        mockProjects = [...mockProjects, { id, name: String(fields.name || 'Project'), description: '', custom_instructions: '' }];
+        return mockDelay({ id });
+      }
+      case 'aicpp_delete_project':
+        mockProjects = mockProjects.filter((p) => p.id !== Number(fields.project_id));
+        return mockDelay({ ok: true });
+      case 'aicpp_get_memories':
+        return mockDelay({ memories: mockMemories });
+      case 'aicpp_add_memory': {
+        const id = (mockMemories.at(-1)?.id || 0) + 1;
+        mockMemories = [...mockMemories, { id, persona_id: Number(fields.persona_id || 1), memory_text: String(fields.memory_text || ''), enabled: 1 }];
+        return mockDelay({ id });
+      }
+      case 'aicpp_update_memory':
+        mockMemories = mockMemories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, memory_text: String(fields.memory_text || '') } : m));
+        return mockDelay({ ok: true });
+      case 'aicpp_delete_memory':
+        mockMemories = mockMemories.filter((m) => m.id !== Number(fields.memory_id));
+        return mockDelay({ ok: true });
+      case 'aicpp_toggle_memory':
+        mockMemories = mockMemories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, enabled: m.enabled ? 0 : 1 } : m));
+        return mockDelay({ ok: true });
+      case 'aicpp_pin_conversation': {
+        const id = Number(fields.conversation_id);
+        mockConversations = mockConversations.map((c) => (c.id === id ? { ...c, pinned: Number(fields.pinned ?? (c.pinned ? 0 : 1)) } : c));
+        return mockDelay({ conversation_id: id, pinned: mockConversations.find((c) => c.id === id)?.pinned || 0 });
+      }
+      default:
+        if (useAdminNonce) return mockDelay({ ok: true });
+    }
+  }
+
+  const formData = new FormData();
+  formData.append('action', action);
+  formData.append('nonce', useAdminNonce ? config.nonce : config.nonce);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null) continue;
+    formData.append(key, typeof value === 'number' ? String(value) : (value as any));
+  }
+
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Server error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || `${action} failed`);
+  return result.data;
+}
+
+export function isWordPress(): boolean {
+  return getWPConfig() !== null;
+}
+
+export function isWPAdmin(): boolean {
+  return !!getWPConfig()?.isAdmin;
+}
+
+export function getWPPersonaId(): number {
+  return getWPConfig()?.personaId ?? 1;
+}
+
+export function getWPSessionId(): string {
+  return getWPConfig()?.sessionId ?? '';
+}
+
+export function getWPUserId(): number {
+  return getWPConfig()?.userId ?? 0;
+}
+
+export async function sendMessageToWP(
+  message: string,
+  attachment?: { url: string; type: string; data?: string } | null,
+): Promise<string> {
+  const result = await sendPersonaChatToWP(message, getWPPersonaId(), getWPSessionId(), attachment);
+  return result.message;
+}
+
+export async function sendMainChatToWP(
+  message: string,
+  sessionId: string,
+  _attachment?: { url: string; type: string; data?: string } | null,
+): Promise<{ message: string; conversation_id?: number }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) {
+    const conversation = ensureMockConversation(sessionId, null, true, message);
+    conversation.messages.push({ role: 'user', content: message });
+    const reply = buildMockReply(message, mockMainCharacter.name);
+    conversation.messages.push({ role: 'assistant', content: reply });
+    conversation.updated_at = new Date().toISOString();
+    conversation.token_count += message.length + reply.length;
+    return mockDelay({ message: reply, conversation_id: conversation.id });
+  }
+
+  const formData = new FormData();
+  formData.append('action', 'aicpp_chat_main');
+  formData.append('nonce', config.nonce);
+  formData.append('message', message);
+  formData.append('session_id', sessionId);
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Server error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || 'Main chat request failed');
+  return result.data;
+}
+
+export async function sendPersonaChatToWP(
+  message: string,
+  personaId: number,
+  sessionId: string,
+  _attachment?: { url: string; type: string; data?: string } | null,
+): Promise<{ message: string; conversation_id?: number }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) {
+    const persona = mockPersonas.find((item) => item.id === personaId) || mockPersonas[0];
+    const conversation = ensureMockConversation(sessionId, persona.id, false, message);
+    conversation.messages.push({ role: 'user', content: message });
+    const reply = buildMockReply(message, persona.name);
+    conversation.messages.push({ role: 'assistant', content: reply });
+    conversation.updated_at = new Date().toISOString();
+    conversation.token_count += message.length + reply.length;
+    return mockDelay({ message: reply, conversation_id: conversation.id });
+  }
+
+  const formData = new FormData();
+  formData.append('action', 'aicpp_chat');
+  formData.append('nonce', config.nonce);
+  formData.append('persona_id', String(personaId));
+  formData.append('message', message);
+  formData.append('session_id', sessionId);
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Server error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || 'Chat request failed');
+  return result.data;
+}
+
+export async function getMyPersonasFromWP(): Promise<{ personas: WPPersonaInfo[]; main_character: WPMainCharacter | null }> {
+  const config = getWPConfig();
+  if (!config) return { personas: [], main_character: null };
+  if (isMockWP(config)) return mockDelay({ personas: mockPersonas, main_character: mockMainCharacter });
+  const formData = new FormData();
+  formData.append('action', 'aicpp_get_my_personas');
+  formData.append('nonce', config.nonce);
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  const result = await response.json();
+  return result.success ? { personas: result.data.personas || [], main_character: result.data.main_character || null } : { personas: [], main_character: null };
+}
+
+export async function uploadFileToWP(file: File): Promise<{ file_url: string; file_name: string; file_type: string; file_data?: string }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) {
+    return mockDelay({ file_url: URL.createObjectURL(file), file_name: file.name, file_type: file.type || 'application/octet-stream' });
+  }
+  return wpFetch('aicpp_upload_file', { file });
+}
+
+export async function transcribeAudioWP(_audioBlob: Blob): Promise<string> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) return mockDelay('Preview transcription for the v12 interface.');
+  const data = await wpFetch('aicpp_transcribe_audio', { audio: new File([_audioBlob], 'recording.webm') });
+  return data.text;
+}
+
+export async function speakTextWP(text: string): Promise<string> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) throw new Error('Audio playback is not available in the local preview.');
+  const data = await wpFetch('aicpp_speak', { text, voice: 'alloy' });
+  return data.audio as string;
+}
+
 export async function getConversationsFromWP(): Promise<WPConversation[]> {
   const config = getWPConfig();
   if (!config) return [];
+  if (isMockWP(config)) {
+    return mockDelay(
+      mockConversations.map(({ messages, session_id, ...conversation }) => ({ ...conversation })).sort(
+        (a, b) => +new Date(b.updated_at) - +new Date(a.updated_at),
+      ),
+    );
+  }
   const data = await wpFetch('aicpp_get_conversations', { session_id: config.sessionId });
   return data.conversations || [];
 }
 
-export async function loadConversationFromWP(conversationId: number): Promise<{
-  messages: WPMessage[];
-  session_id: string;
-  persona_id: number;
-} | null> {
+export async function loadConversationFromWP(conversationId: number): Promise<{ messages: WPMessage[]; session_id: string; persona_id: number; is_main_chat: number } | null> {
+  const config = getWPConfig();
+  if (!config) return null;
+  if (isMockWP(config)) {
+    const conversation = mockConversations.find((item) => item.id === conversationId);
+    return mockDelay(
+      conversation
+        ? {
+            messages: conversation.messages,
+            session_id: conversation.session_id,
+            persona_id: conversation.persona_id || 0,
+            is_main_chat: conversation.is_main_chat,
+          }
+        : null,
+    );
+  }
   try {
     return await wpFetch('aicpp_load_conversation', { conversation_id: conversationId });
   } catch {
@@ -236,6 +448,12 @@ export async function loadConversationFromWP(conversationId: number): Promise<{
 }
 
 export async function deleteConversationFromWP(conversationId: number): Promise<boolean> {
+  const config = getWPConfig();
+  if (!config) return false;
+  if (isMockWP(config)) {
+    mockConversations = mockConversations.filter((item) => item.id !== conversationId);
+    return mockDelay(true);
+  }
   try {
     await wpFetch('aicpp_delete_conversation', { conversation_id: conversationId });
     return true;
@@ -245,180 +463,87 @@ export async function deleteConversationFromWP(conversationId: number): Promise<
 }
 
 export async function pinConversationWP(conversationId: number, pinned?: boolean): Promise<{ conversation_id: number; pinned: number }> {
-  const fields: Record<string, number> = { conversation_id: conversationId };
-  if (pinned !== undefined) fields.pinned = pinned ? 1 : 0;
-  return wpFetch('aicpp_pin_conversation', fields);
+  return wpFetch('aicpp_pin_conversation', { conversation_id: conversationId, pinned: pinned ? 1 : 0 });
 }
 
-export interface WPSearchHit {
-  id: number;
-  conversation_id: number;
-  role: 'user' | 'assistant';
-  content: string;
-  created_at: string;
-  title: string;
+export async function registerUserWP(data: { username: string; email: string; password: string; display_name?: string }): Promise<{ user_id: number; display_name: string }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) return mockDelay({ user_id: 1, display_name: data.display_name || data.username });
+  const formData = new FormData();
+  formData.append('action', 'aicpp_register_user');
+  formData.append('nonce', config.registerNonce || config.nonce);
+  formData.append('username', data.username);
+  formData.append('email', data.email);
+  formData.append('password', data.password);
+  if (data.display_name) formData.append('display_name', data.display_name);
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Registration error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || 'Registration failed');
+  return result.data;
 }
 
-export async function searchMessagesWP(query: string): Promise<WPSearchHit[]> {
-  if (query.trim().length < 2) return [];
-  const data = await wpFetch('aicpp_search_messages', { query });
-  return data.results || [];
-}
-
-export async function assignConversationProjectWP(conversationId: number, projectId: number): Promise<void> {
-  await wpFetch('aicpp_assign_conversation_project', {
-    conversation_id: conversationId,
-    project_id: projectId,
-  });
-}
-
-// ===================== ARTIFACTS =====================
-
-export interface WPArtifact {
-  id: number;
-  title: string;
-  artifact_type: string;
-  content?: string;
-  version: number;
-  updated_at: string;
-}
-
-export async function listArtifactsWP(conversationId: number): Promise<WPArtifact[]> {
-  const data = await wpFetch('aicpp_list_artifacts', { conversation_id: conversationId });
-  return data.artifacts || [];
-}
-
-export async function getArtifactWP(artifactId: number): Promise<WPArtifact | null> {
-  try {
-    return await wpFetch('aicpp_get_artifact', { artifact_id: artifactId });
-  } catch {
-    return null;
-  }
-}
-
-export async function saveArtifactWP(payload: {
-  id?: number;
-  title: string;
-  type: string;
-  content: string;
-  conversationId?: number;
-}): Promise<number> {
-  const data = await wpFetch('aicpp_save_artifact', {
-    artifact_id: payload.id ?? 0,
-    title: payload.title,
-    artifact_type: payload.type,
-    content: payload.content,
-    conversation_id: payload.conversationId ?? 0,
-  });
-  return data.id as number;
-}
-
-export async function deleteArtifactWP(artifactId: number): Promise<void> {
-  await wpFetch('aicpp_delete_artifact', { artifact_id: artifactId });
-}
-
-// ===================== MEMORIES (admin only) =====================
-
-export interface WPMemory {
-  id: number;
-  persona_id: number;
-  memory_text: string;
-  enabled: number;
+export async function loginUserWP(data: { login: string; password: string }): Promise<{ user_id: number; display_name: string; message: string }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+  if (isMockWP(config)) return mockDelay({ user_id: 1, display_name: data.login, message: 'Signed in' });
+  const formData = new FormData();
+  formData.append('action', 'aicpp_login_user');
+  formData.append('nonce', config.loginNonce || config.nonce);
+  formData.append('login', data.login);
+  formData.append('password', data.password);
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Login error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || 'Login failed');
+  return result.data;
 }
 
 export async function getMemoriesWP(userId: number): Promise<WPMemory[]> {
   const data = await wpFetch('aicpp_get_memories', { user_id: userId }, true);
   return data.memories || [];
 }
+
 export async function addMemoryWP(userId: number, personaId: number, text: string): Promise<number> {
   const data = await wpFetch('aicpp_add_memory', { user_id: userId, persona_id: personaId, memory_text: text }, true);
   return data.id as number;
 }
+
 export async function updateMemoryWP(memoryId: number, text: string): Promise<void> {
   await wpFetch('aicpp_update_memory', { memory_id: memoryId, memory_text: text }, true);
 }
+
 export async function deleteMemoryWP(memoryId: number): Promise<void> {
   await wpFetch('aicpp_delete_memory', { memory_id: memoryId }, true);
 }
+
 export async function toggleMemoryWP(memoryId: number): Promise<void> {
   await wpFetch('aicpp_toggle_memory', { memory_id: memoryId }, true);
-}
-
-// ===================== PROJECTS (admin only) =====================
-
-export interface WPProject {
-  id: number;
-  name: string;
-  description: string;
-  custom_instructions: string;
 }
 
 export async function getProjectsWP(): Promise<WPProject[]> {
   const data = await wpFetch('aicpp_get_projects', {}, true);
   return data.projects || [];
 }
+
 export async function createProjectWP(name: string, description = '', customInstructions = ''): Promise<number> {
   const data = await wpFetch('aicpp_create_project', { name, description, custom_instructions: customInstructions }, true);
   return data.id as number;
 }
-export async function updateProjectWP(id: number, fields: Partial<WPProject>): Promise<void> {
-  await wpFetch('aicpp_update_project', { project_id: id, ...fields as any }, true);
-}
+
 export async function deleteProjectWP(id: number): Promise<void> {
   await wpFetch('aicpp_delete_project', { project_id: id }, true);
-}
-export async function attachProjectFileWP(projectId: number, fileName: string, contentExcerpt: string): Promise<number> {
-  const data = await wpFetch('aicpp_attach_project_file', {
-    project_id: projectId,
-    file_name: fileName,
-    content_excerpt: contentExcerpt,
-  }, true);
-  return data.id as number;
-}
-export async function detachProjectFileWP(fileId: number): Promise<void> {
-  await wpFetch('aicpp_detach_project_file', { file_id: fileId }, true);
-}
-
-// ===================== OPENROUTER FREE MODELS (admin settings) =====================
-
-export interface WPORModel {
-  id: string;
-  name: string;
-  context_length?: number;
-  pricing?: { prompt: string; completion: string };
 }
 
 export async function getORFreeModelsWP(): Promise<WPORModel[]> {
   const data = await wpFetch('aicpp_or_free_models', {}, true);
   return data.models || [];
 }
+
 export async function refreshORFreeModelsWP(): Promise<WPORModel[]> {
   const data = await wpFetch('aicpp_or_refresh_free', {}, true);
   return data.models || [];
-}
-
-// ===================== USER REGISTRATION / WP USER INFO =====================
-
-export async function registerUserWP(data: {
-  username: string;
-  email: string;
-  password: string;
-  display_name?: string;
-}): Promise<{ user_id: number; display_name: string }> {
-  const config = getWPConfig();
-  if (!config) throw new Error('WordPress config not available');
-  const fd = new FormData();
-  fd.append('action', 'aicpp_register_user');
-  fd.append('nonce', config.registerNonce || config.nonce);
-  fd.append('username', data.username);
-  fd.append('email', data.email);
-  fd.append('password', data.password);
-  if (data.display_name) fd.append('display_name', data.display_name);
-  const r = await fetch(config.ajaxurl, { method: 'POST', body: fd });
-  if (!r.ok) throw new Error(`Registration error: ${r.status}`);
-  const j = await r.json();
-  if (!j.success) throw new Error(j.data?.message || 'Registration failed');
-  return j.data;
 }
 
 export function getWPUserInfo(): { isLoggedIn: boolean; displayName: string } {
