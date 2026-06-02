@@ -15,9 +15,16 @@ interface WPConfig {
 }
 
 export interface ParsedArtifact {
+  id?: number;
   type: string;
   title: string;
   content: string;
+}
+
+export interface WPChatResponse {
+  message: string;
+  conversation_id?: number;
+  artifacts?: ParsedArtifact[];
 }
 
 export interface WPPersonaInfo {
@@ -224,6 +231,34 @@ function buildMockReply(message: string, name: string) {
   return `${name} preview reply for Integrate v12 WP API #18:\n\n${clean || 'Ready.'}`;
 }
 
+function extractArtifacts(content: string): ParsedArtifact[] {
+  const artifacts: ParsedArtifact[] = [];
+  const artifactTag = /<artifact\s+type="([^"]+)"(?:\s+title="([^"]*)")?\s*>([\s\S]*?)<\/artifact>/gi;
+  const fence = /```(html|svg|markdown|md|react|jsx|css|js)\s*([\s\S]*?)```/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = artifactTag.exec(content))) {
+    artifacts.push({
+      id: artifacts.length + 1,
+      type: match[1].toLowerCase(),
+      title: match[2] || `${match[1]} artifact`,
+      content: match[3].trim(),
+    });
+  }
+
+  while ((match = fence.exec(content))) {
+    const type = match[1].toLowerCase() === 'md' ? 'markdown' : match[1].toLowerCase() === 'jsx' ? 'react' : match[1].toLowerCase();
+    artifacts.push({
+      id: artifacts.length + 1,
+      type,
+      title: `${type.toUpperCase()} artifact`,
+      content: match[2].trim(),
+    });
+  }
+
+  return artifacts;
+}
+
 async function wpFetch(action: string, fields: Record<string, string | Blob | number>, useAdminNonce = false) {
   const config = getWPConfig();
   if (!config) throw new Error('WordPress config not available');
@@ -316,7 +351,7 @@ export async function sendMainChatToWP(
   message: string,
   sessionId: string,
   _attachment?: { url: string; type: string; data?: string } | null,
-): Promise<{ message: string; conversation_id?: number }> {
+): Promise<WPChatResponse> {
   const config = getWPConfig();
   if (!config) throw new Error('WordPress config not available');
   if (isMockWP(config)) {
@@ -326,7 +361,7 @@ export async function sendMainChatToWP(
     conversation.messages.push({ role: 'assistant', content: reply });
     conversation.updated_at = new Date().toISOString();
     conversation.token_count += message.length + reply.length;
-    return mockDelay({ message: reply, conversation_id: conversation.id });
+    return mockDelay({ message: reply, conversation_id: conversation.id, artifacts: extractArtifacts(reply) });
   }
 
   const formData = new FormData();
@@ -346,7 +381,7 @@ export async function sendPersonaChatToWP(
   personaId: number,
   sessionId: string,
   _attachment?: { url: string; type: string; data?: string } | null,
-): Promise<{ message: string; conversation_id?: number }> {
+): Promise<WPChatResponse> {
   const config = getWPConfig();
   if (!config) throw new Error('WordPress config not available');
   if (isMockWP(config)) {
@@ -357,7 +392,7 @@ export async function sendPersonaChatToWP(
     conversation.messages.push({ role: 'assistant', content: reply });
     conversation.updated_at = new Date().toISOString();
     conversation.token_count += message.length + reply.length;
-    return mockDelay({ message: reply, conversation_id: conversation.id });
+    return mockDelay({ message: reply, conversation_id: conversation.id, artifacts: extractArtifacts(reply) });
   }
 
   const formData = new FormData();
