@@ -25,6 +25,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<AuthContextType['profile']>(null);
 
   useEffect(() => {
+    const wpCfg = (window as any)?.versace22_chat;
+    if (wpCfg) {
+      const isLoggedIn = !!wpCfg.user_logged_in;
+      setSession(null);
+      setUser(
+        isLoggedIn
+          ? ({
+              id: String(wpCfg.user_id || 'wp-user'),
+              email: wpCfg.user_email || undefined,
+              created_at: new Date().toISOString(),
+            } as User)
+          : null,
+      );
+      setProfile({
+        display_name: isLoggedIn ? wpCfg.user_display_name || 'User' : null,
+        avatar_url: wpCfg.user_avatar || null,
+      });
+      setLoading(false);
+      return;
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -56,6 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
+    const wpCfg = (window as any)?.versace22_chat;
+    if (wpCfg?.logout_url) {
+      window.location.href = wpCfg.logout_url;
+      return;
+    }
     await supabase.auth.signOut();
   };
 
