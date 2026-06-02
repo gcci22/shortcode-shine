@@ -58,7 +58,7 @@ export function ProjectsSection() {
           Projects
         </button>
         <button
-          onClick={() => setCreating(true)}
+          onClick={() => setOpen(true)}
           title="New project"
           className="p-1 rounded hover:bg-sidebar-accent transition-colors"
         >
