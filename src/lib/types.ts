@@ -17,12 +17,20 @@ export interface MainCharacter {
   model: string;
 }
 
+export interface ArtifactData {
+  id?: string | number;
+  type: string;
+  title: string;
+  content: string;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
   persona?: Persona;
+  artifacts?: ArtifactData[];
 }
 
 export interface Conversation {
@@ -33,6 +41,8 @@ export interface Conversation {
   avatarInitials?: string;
   avatarColor?: string;
   isMainChat?: boolean;
+  projectId?: number;
+  pinned?: boolean;
   messages: Message[];
   updatedAt: Date;
 }
