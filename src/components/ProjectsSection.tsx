@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, Folder, Trash2 } from 'lucide-react';
 import {
   WPProject, getProjectsWP, createProjectWP, deleteProjectWP,
-  isWordPress, isWPAdmin,
+  isWordPress,
 } from '@/lib/wp-api';
 import { toast } from 'sonner';
 
@@ -13,11 +13,11 @@ import { toast } from 'sonner';
 export function ProjectsSection() {
   const [open, setOpen] = useState(true);
   const [projects, setProjects] = useState<WPProject[]>([]);
-  const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [loading, setLoading] = useState(false);
 
-  if (!isWordPress() || !isWPAdmin()) return null;
+  if (!isWordPress()) return null;
 
   const refresh = async () => {
     setLoading(true);
@@ -32,8 +32,9 @@ export function ProjectsSection() {
     const n = name.trim();
     if (!n) return;
     try {
-      await createProjectWP(n);
-      setName(''); setCreating(false);
+      await createProjectWP(n, '', instructions.trim());
+      setName('');
+      setInstructions('');
       refresh();
       toast.success('Project created');
     } catch (e: any) { toast.error(e.message); }
@@ -67,23 +68,31 @@ export function ProjectsSection() {
 
       {open && (
         <div className="space-y-0.5">
-          {creating && (
-            <div className="flex items-center gap-1 mb-1">
-              <input
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate();
-                  if (e.key === 'Escape') { setCreating(false); setName(''); }
-                }}
-                placeholder="Project name"
-                className="flex-1 px-2 py-1 text-xs bg-sidebar-accent rounded border border-primary/30 focus:outline-none focus:border-primary text-foreground"
-              />
-            </div>
-          )}
+          <div className="mb-3 rounded-2xl border border-sidebar-border bg-sidebar-accent/60 p-2.5 space-y-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder="Project name"
+              className="w-full px-3 py-2 text-xs bg-secondary rounded-xl border border-border focus:outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+            />
+            <input
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              placeholder="Project instructions"
+              className="w-full px-3 py-2 text-xs bg-secondary rounded-xl border border-border focus:outline-none focus:border-primary/40 text-foreground placeholder:text-muted-foreground"
+            />
+            <button
+              onClick={handleCreate}
+              className="w-full rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              Create project
+            </button>
+          </div>
+
           {loading && <p className="px-2 text-[11px] text-muted-foreground">Loading…</p>}
-          {!loading && projects.length === 0 && !creating && (
+          {!loading && projects.length === 0 && (
             <p className="px-2 text-[11px] text-muted-foreground">No projects yet.</p>
           )}
           {projects.map(p => (
@@ -91,7 +100,7 @@ export function ProjectsSection() {
               key={p.id}
               className="group flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors"
             >
-              <Folder className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <Folder className="w-3.5 h-3.5 text-primary shrink-0" />
               <span className="flex-1 truncate">{p.name}</span>
               <button
                 onClick={() => handleDelete(p.id)}
