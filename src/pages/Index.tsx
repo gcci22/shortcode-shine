@@ -5,6 +5,8 @@ import { ChatInput } from '@/components/ChatInput';
 import { ChatMessages } from '@/components/ChatMessages';
 import { WelcomeScreen } from '@/components/WelcomeScreen';
 import { PersonaGallery } from '@/components/PersonaGallery';
+import { MemoryDrawer } from '@/components/MemoryDrawer';
+import { ArtifactCanvas } from '@/components/ArtifactCanvas';
 import { SpecializedModesBar, SpecializedMode, SPECIALIZED_MODES } from '@/components/SpecializedModes';
 import { LeaderboardView, ProfileView, ReferView } from '@/components/SidebarViews';
 import { DEFAULT_PERSONAS, Message, Persona, MainCharacter } from '@/lib/types';
@@ -15,6 +17,8 @@ import {
   isWordPress,
   getMyPersonasFromWP,
   getWPSessionId,
+  parseArtifactsFromContent,
+  ParsedArtifact,
 } from '@/lib/wp-api';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
@@ -47,6 +51,8 @@ const Index = () => {
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<SpecializedMode>(SPECIALIZED_MODES[0]);
   const [sessionId, setSessionId] = useState(() => getWPSessionId() || 'sess_' + crypto.randomUUID());
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [activeArtifact, setActiveArtifact] = useState<ParsedArtifact | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load personas from WP on mount
@@ -139,6 +145,10 @@ const Index = () => {
     handleNewConversation();
   };
 
+  useEffect(() => {
+    setMemoryOpen(activeView === 'memories');
+  }, [activeView]);
+
   const handleSend = async (
     text: string,
     attachment?: { url: string; type: string; data?: string } | null,
@@ -197,6 +207,7 @@ const Index = () => {
       content: replyContent,
       timestamp: new Date(),
       persona: selectedPersona || undefined,
+      artifacts: parseArtifactsFromContent(replyContent),
     };
 
     const updatedMessages = [...newMessages, aiMsg];
@@ -245,6 +256,7 @@ const Index = () => {
       content: replyContent,
       timestamp: new Date(),
       persona: selectedPersona || undefined,
+      artifacts: parseArtifactsFromContent(replyContent),
     };
 
     setCurrentMessages([...updated, aiMsg]);
@@ -280,8 +292,8 @@ const Index = () => {
         onSignOut={signOut}
       />
 
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
+        <main className="flex-1 flex flex-col min-w-0 relative">
+          <header className="flex items-center gap-3 px-4 py-3 border-b border-border shrink-0 bg-background/95">
           <button
             onClick={() => setSidebarOpen(true)}
             className="p-2 rounded-lg hover:bg-muted transition-colors lg:hidden"
@@ -319,7 +331,7 @@ const Index = () => {
           </button>
         </header>
 
-        {activeView === 'leaderboard' ? (
+          {activeView === 'leaderboard' ? (
           <LeaderboardView onBackToChat={() => setActiveView('chat')} />
         ) : activeView === 'profile' ? (
           <ProfileView onBackToChat={() => setActiveView('chat')} />
@@ -335,7 +347,25 @@ const Index = () => {
             onSelectMainCharacter={handleSelectMainCharacter}
             onBack={() => setActiveView('chat')}
           />
-        ) : (
+          ) : activeView === 'memories' ? (
+            <div className="flex-1 flex items-center justify-center px-6 text-center">
+              <div className="space-y-4" style={{ animation: 'fade-up 0.4s cubic-bezier(0.16,1,0.3,1) both' }}>
+                <div className="text-primary text-6xl">🧠</div>
+                <div className="space-y-2">
+                  <h2 className="text-4xl font-extrabold text-primary">Memories</h2>
+                  <p className="max-w-md text-sm text-muted-foreground">
+                    The memory drawer is open on the right. Add details the AI should remember about you.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setMemoryOpen(true)}
+                  className="rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+                >
+                  Open memories
+                </button>
+              </div>
+            </div>
+          ) : (
           <>
             {currentMessages.length === 0 ? (
               <WelcomeScreen personaName={activeChatName} onSendSuggestion={handleSend} />
@@ -347,6 +377,7 @@ const Index = () => {
                     isTyping={isTyping}
                     streamingMessageId={streamingMessageId}
                     onRegenerate={handleRegenerate}
+                    onOpenArtifact={setActiveArtifact}
                   />
                   <div ref={messagesEndRef} />
                 </div>
@@ -358,6 +389,16 @@ const Index = () => {
             </div>
           </>
         )}
+
+          <MemoryDrawer
+            open={memoryOpen}
+            onClose={() => {
+              setMemoryOpen(false);
+              if (activeView === 'memories') setActiveView('chat');
+            }}
+          />
+
+          <ArtifactCanvas artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />
       </main>
     </div>
   );
