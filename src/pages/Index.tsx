@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Menu, LogOut, Star } from 'lucide-react';
+import { Menu, LogOut } from 'lucide-react';
 import { ChatSidebar, SidebarView } from '@/components/ChatSidebar';
 import { ChatInput } from '@/components/ChatInput';
 import { ChatMessages } from '@/components/ChatMessages';
@@ -300,21 +300,6 @@ const Index = () => {
           >
             <Menu className="w-5 h-5 text-muted-foreground" />
           </button>
-
-          {/* Main Character quick-switch button (WP mode only) */}
-          {wpMode && mainCharacter && (
-            <button
-              onClick={handleSelectMainCharacter}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all shrink-0
-                ${isMainChatMode
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-            >
-              <Star className="w-3.5 h-3.5" />
-              {mainCharacter.name}
-            </button>
-          )}
 
           <div className="flex-1 overflow-x-auto">
             <SpecializedModesBar
