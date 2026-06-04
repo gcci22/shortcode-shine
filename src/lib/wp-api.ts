@@ -10,6 +10,7 @@ interface WPConfig {
   sessionId: string;
   userId: number;
   isAdmin: boolean;
+  adminNonce?: string;
   loginNonce?: string;
   registerNonce?: string;
 }
