@@ -312,7 +312,7 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
 
   const formData = new FormData();
   formData.append('action', action);
-  formData.append('nonce', useAdminNonce ? config.nonce : config.nonce);
+  formData.append('nonce', useAdminNonce ? (config.adminNonce || config.nonce) : config.nonce);
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined || value === null) continue;
     formData.append(key, typeof value === 'number' ? String(value) : (value as any));
