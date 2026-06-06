@@ -27,22 +27,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const wpCfg = (window as any)?.versace22_chat;
     if (wpCfg) {
-      const isLoggedIn = !!wpCfg.user_logged_in;
-      setSession(null);
-      setUser(
-        isLoggedIn
-          ? ({
-              id: String(wpCfg.user_id || 'wp-user'),
-              email: wpCfg.user_email || undefined,
-              created_at: new Date().toISOString(),
-            } as User)
-          : null,
-      );
-      setProfile({
-        display_name: isLoggedIn ? wpCfg.user_display_name || 'User' : null,
-        avatar_url: wpCfg.user_avatar || null,
-      });
-      setLoading(false);
+      const syncWPAuth = () => {
+        const currentCfg = (window as any)?.versace22_chat;
+        const isLoggedIn = !!currentCfg?.user_logged_in;
+        setSession(null);
+        setUser(
+          isLoggedIn
+            ? ({
+                id: String(currentCfg?.user_id || 'wp-user'),
+                email: currentCfg?.user_email || undefined,
+                created_at: new Date().toISOString(),
+              } as User)
+            : null,
+        );
+        setProfile({
+          display_name: isLoggedIn ? currentCfg?.user_display_name || 'User' : null,
+          avatar_url: currentCfg?.user_avatar || null,
+        });
+        setLoading(false);
+      };
+
+      syncWPAuth();
+      window.addEventListener('versace22-wp-auth-changed', syncWPAuth as EventListener);
+      window.addEventListener('storage', syncWPAuth as EventListener);
+
+      return () => {
+        window.removeEventListener('versace22-wp-auth-changed', syncWPAuth as EventListener);
+        window.removeEventListener('storage', syncWPAuth as EventListener);
+      };
       return;
     }
 
