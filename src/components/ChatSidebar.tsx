@@ -23,6 +23,7 @@ interface ChatSidebarProps {
   avatarUrl?: string;
   onSignOut?: () => void;
   isLoggedIn?: boolean;
+  onOpenAuth?: () => void;
 }
 
 const navItems = [
@@ -50,6 +51,7 @@ export function ChatSidebar({
   avatarUrl,
   onSignOut,
   isLoggedIn = true,
+  onOpenAuth,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [findUsOpen, setFindUsOpen] = useState(false);
@@ -197,21 +199,33 @@ export function ChatSidebar({
               {theme === 'dark' ? <Sun className="w-4 h-4 text-muted-foreground" /> : <Moon className="w-4 h-4 text-muted-foreground" />}
             </button>
           </div>
-          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-sidebar-accent/60">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt={userName} className="w-8 h-8 rounded-full object-cover shrink-0" />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground shrink-0">
-                {userInitial}
+          {isLoggedIn ? (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-sidebar-accent/60">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={userName} className="w-8 h-8 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-bold text-primary-foreground shrink-0">
+                  {userInitial}
+                </div>
+              )}
+              <span className="text-sm font-medium text-foreground flex-1 truncate">{userName}</span>
+              {onSignOut && (
+                <button onClick={onSignOut} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors" title="Sign out">
+                  <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={onOpenAuth}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-xl bg-sidebar-accent/60 hover:bg-sidebar-accent transition-colors"
+            >
+              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                U
               </div>
-            )}
-            <span className="text-sm font-medium text-foreground flex-1 truncate">{userName}</span>
-            {onSignOut && isLoggedIn && (
-              <button onClick={onSignOut} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors" title="Sign out">
-                <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
-              </button>
-            )}
-          </div>
+              <span className="text-sm font-medium text-foreground flex-1 truncate text-left">Sign in</span>
+            </button>
+          )}
         </div>
       </aside>
     </>
