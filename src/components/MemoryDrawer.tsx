@@ -48,6 +48,9 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
   };
 
   const canManage = userId > 0 && isWPAdmin();
+  const isPreviewMock = typeof window !== 'undefined' && !!(window as any)?.versace22_chat?.ajaxurl?.includes('/wp-mock/');
+  const canUsePreviewMemories = isPreviewMock && userId > 0;
+  const canAdd = canManage || canUsePreviewMemories;
 
   return (
     <aside className="fixed top-0 right-0 z-50 h-dvh w-full sm:w-[340px] bg-card border-l border-border flex flex-col shadow-2xl animate-in slide-in-from-right duration-200">
@@ -66,13 +69,13 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
           />
           <button
             onClick={add}
-            disabled={!draft.trim() || !canManage}
+            disabled={!draft.trim() || !canAdd}
             className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
           >
             + Add
           </button>
         </div>
-        {!canManage && (
+        {!canAdd && (
           <p className="text-xs text-muted-foreground">
             {userId > 0
               ? 'Memories require an admin account (manage_options). Sign in as the WordPress admin to add memories.'
