@@ -24,8 +24,9 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
     setLoading(true);
     try {
       await loginUserWP({ login, password });
-      toast.success('Signed in! Reloading...');
-      setTimeout(() => window.location.reload(), 600);
+      window.dispatchEvent(new Event('versace22-wp-auth-changed'));
+      toast.success('Signed in!');
+      onClose();
     } catch (err: any) {
       toast.error(err.message || 'Login failed');
       setLoading(false);
@@ -36,11 +37,10 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
     e.preventDefault();
     setLoading(true);
     try {
-      // Plugin auto-signs-in the user on successful registration (wp_set_auth_cookie).
-      // Do NOT call loginUserWP again — it triggers the login rate limiter.
       await registerUserWP({ username, email, password, display_name: displayName });
-      toast.success('Account created! Reloading...');
-      setTimeout(() => window.location.reload(), 600);
+      window.dispatchEvent(new Event('versace22-wp-auth-changed'));
+      toast.success('Account created!');
+      onClose();
     } catch (err: any) {
       toast.error(err.message || 'Registration failed');
       setLoading(false);
@@ -49,13 +49,18 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-sm bg-card border border-border rounded-2xl p-6 space-y-4 shadow-2xl">
+      <div className="relative w-full max-w-sm bg-card border border-border rounded-[22px] p-6 space-y-4 shadow-2xl">
         <button
           onClick={onClose}
           className="absolute right-3 top-3 p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
         >
           <X className="w-4 h-4" />
         </button>
+
+        <div className="space-y-1 text-center">
+          <div className="text-xl font-extrabold text-primary">VERSACE22 AI</div>
+          <p className="text-sm text-muted-foreground">Sign in to continue</p>
+        </div>
 
         <div className="flex gap-2 p-1 bg-muted rounded-full">
           <button
@@ -78,10 +83,9 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
 
         {mode === 'login' ? (
           <form onSubmit={handleLogin} className="space-y-3">
-            <h2 className="text-base font-semibold text-foreground">Welcome back</h2>
             <input
               type="text"
-              placeholder="Username or email"
+              placeholder="Email"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
               required
@@ -89,7 +93,7 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
             />
             <input
               type="password"
-              placeholder="Password"
+              placeholder="At least 6 characters"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
@@ -101,6 +105,12 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
               className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-medium disabled:opacity-50"
             >
               {loading ? 'Signing in...' : 'Sign in'}
+            </button>
+            <button
+              type="button"
+              className="w-full py-2.5 rounded-xl bg-muted text-foreground hover:bg-secondary text-sm font-medium"
+            >
+              Continue with Google
             </button>
           </form>
         ) : (

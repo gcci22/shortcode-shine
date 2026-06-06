@@ -23,59 +23,13 @@ function useViewData() {
 }
 
 export function LeaderboardView({ onBackToChat }: ViewProps) {
-  const { conversations, displayName } = useViewData();
-
-  const userScore = conversations.length * 10;
-
-  const leaders = [
-    { rank: 1, name: 'Alex M.', score: 2840, badge: '🥇' },
-    { rank: 2, name: 'Sarah K.', score: 2510, badge: '🥈' },
-    { rank: 3, name: 'James L.', score: 2200, badge: '🥉' },
-    { rank: 4, name: 'Mia R.', score: 1980 },
-    { rank: 5, name: displayName, score: userScore, highlight: true },
-  ];
-
-  const sorted = [...leaders].sort((a, b) => b.score - a.score).map((l, i) => ({
-    ...l,
-    rank: i + 1,
-    badge: i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : undefined,
-  }));
-
   return (
-    <div className="flex-1 flex flex-col items-center px-4 py-8 overflow-y-auto">
-      <BackButton onClick={onBackToChat} />
-      <div className="w-full max-w-md space-y-6" style={{ animation: 'fade-up 0.5s cubic-bezier(0.16,1,0.3,1) both' }}>
-        <div className="text-center space-y-2">
-          <Trophy className="w-10 h-10 text-primary mx-auto" />
-          <h2 className="text-2xl font-bold text-foreground">Leaderboard</h2>
-          <p className="text-sm text-muted-foreground">Top community members this month</p>
-        </div>
-
-        <div className="bg-primary/10 border border-primary/20 rounded-xl p-4 text-center space-y-1">
-          <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Your Activity</p>
-          <p className="text-2xl font-bold text-primary">{userScore} pts</p>
-          <p className="text-xs text-muted-foreground">{conversations.length} conversations · {conversations.length * 10} points earned</p>
-        </div>
-
-        <div className="space-y-2">
-          {sorted.map((l) => (
-            <div
-              key={l.name}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all duration-200 ${
-                l.highlight
-                  ? 'bg-primary/10 border-primary/30 text-primary scale-[1.02]'
-                  : 'bg-card border-border hover:border-border/80'
-              }`}
-            >
-              <span className="text-lg font-bold w-8 text-center">{l.badge || `#${l.rank}`}</span>
-              <span className="flex-1 font-medium text-foreground">{l.name} {l.highlight && '(you)'}</span>
-              <span className="text-sm font-semibold text-muted-foreground">{l.score.toLocaleString()} pts</span>
-            </div>
-          ))}
-        </div>
-        <p className="text-xs text-center text-muted-foreground">Earn 10 points per conversation · 50 points per referral</p>
-      </div>
-    </div>
+    <SimpleCenterPanel
+      icon={<Trophy className="w-8 h-8 text-primary" />}
+      title="Leaderboard"
+      description="Top contributors and most-used personas this week."
+      onBackToChat={onBackToChat}
+    />
   );
 }
 
@@ -380,5 +334,35 @@ function BackButton({ onClick }: { onClick: () => void }) {
       <ArrowLeft className="w-4 h-4" />
       Back to Chat
     </button>
+  );
+}
+
+function SimpleCenterPanel({
+  icon,
+  title,
+  description,
+  onBackToChat,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onBackToChat: () => void;
+}) {
+  return (
+    <div className="flex-1 flex items-center justify-center px-6 text-center">
+      <div className="space-y-4" style={{ animation: 'fade-up 0.4s cubic-bezier(0.16,1,0.3,1) both' }}>
+        <div className="flex justify-center">{icon}</div>
+        <div className="space-y-2">
+          <h2 className="text-4xl font-extrabold text-primary">{title}</h2>
+          <p className="max-w-md text-sm text-muted-foreground">{description}</p>
+        </div>
+        <button
+          onClick={onBackToChat}
+          className="rounded-xl bg-muted px-5 py-3 text-sm font-semibold text-foreground hover:bg-secondary"
+        >
+          Back to chat
+        </button>
+      </div>
+    </div>
   );
 }
