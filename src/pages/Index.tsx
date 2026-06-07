@@ -16,6 +16,7 @@ import {
   sendMainChatToWP,
   sendPersonaChatToWP,
   isWordPress,
+  isPreviewMock,
   getMyPersonasFromWP,
   getWPSessionId,
   parseArtifactsFromContent,
@@ -28,6 +29,7 @@ import { useWPConversations } from '@/hooks/useWPConversations';
 const Index = () => {
   const { user, signOut, profile } = useAuth();
   const wpMode = isWordPress();
+  const previewMock = isPreviewMock();
 
   const supaConv = useConversations();
   const wpConv = useWPConversations();
@@ -56,7 +58,11 @@ const Index = () => {
   const [activeArtifact, setActiveArtifact] = useState<ParsedArtifact | null>(null);
   const [wpAuthOpen, setWpAuthOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const wpLoggedIn = wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user;
+  const wpLoggedIn = previewMock
+    ? !!user
+    : wpMode
+      ? !!(window as any)?.versace22_chat?.user_logged_in
+      : !!user;
   const requireWordPressAuth = wpMode;
 
   // Load personas from WP on mount

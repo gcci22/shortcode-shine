@@ -460,6 +460,10 @@ export function isWordPress(): boolean {
   return getWPConfig() !== null;
 }
 
+export function isPreviewMock(): boolean {
+  return isMockWP(getWPConfig());
+}
+
 export function isWPAdmin(): boolean {
   return !!getWPConfig()?.isAdmin;
 }
