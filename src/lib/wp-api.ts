@@ -518,6 +518,11 @@ export function hasWPGoogleLogin(): boolean {
   return !!config && (isMockWP(config) || !!config.googleLoginUrl);
 }
 
+export function hasWPForgotPassword(): boolean {
+  const config = getWPConfig();
+  return !!config && (isMockWP(config) || !!config.lostPasswordUrl);
+}
+
 export async function signInWithGoogleWP(): Promise<void> {
   const config = getWPConfig();
   if (!config) throw new Error('WordPress config not available');
@@ -549,6 +554,45 @@ export async function signInWithGoogleWP(): Promise<void> {
   }
 
   window.location.href = config.googleLoginUrl;
+}
+
+export async function requestPasswordResetWP(loginOrEmail: string): Promise<{ message: string }> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+
+  const value = loginOrEmail.trim();
+  if (!value) throw new Error('Enter your email or username');
+
+  if (isMockWP(config)) {
+    const store = getMockStore();
+    const matchedUser = store.users.find(
+      (item) => item.username.toLowerCase() === value.toLowerCase() || item.email.toLowerCase() === value.toLowerCase(),
+    );
+    if (!matchedUser) {
+      throw new Error('No account was found with that email or username');
+    }
+    return mockDelay({ message: `Preview mode: password reset email simulated for ${matchedUser.email}.` });
+  }
+
+  const formData = new FormData();
+  formData.append('action', 'aicpp_forgot_password');
+  formData.append('nonce', config.forgotPasswordNonce || config.loginNonce || config.nonce);
+  formData.append('login', value);
+
+  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  if (!response.ok) throw new Error(`Password reset error: ${response.status}`);
+  const result = await response.json();
+  if (!result.success) throw new Error(result.data?.message || 'Password reset failed');
+  return result.data;
+}
+
+export function openLostPasswordWP() {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+
+  if (isMockWP(config)) return;
+  if (!config.lostPasswordUrl) throw new Error('Password recovery is not configured in WordPress yet');
+  window.location.href = config.lostPasswordUrl;
 }
 
 export async function sendMessageToWP(
@@ -767,6 +811,13 @@ export async function registerUserWP(data: { username: string; email: string; pa
   if (!response.ok) throw new Error(`Registration error: ${response.status}`);
   const result = await response.json();
   if (!result.success) throw new Error(result.data?.message || 'Registration failed');
+  applyWPAuthPayload({
+    user_id: result.data?.user_id,
+    display_name: result.data?.display_name,
+    email: result.data?.email || data.email,
+    avatar: result.data?.avatar || '',
+    is_admin: !!result.data?.is_admin,
+  });
   return result.data;
 }
 
@@ -793,6 +844,13 @@ export async function loginUserWP(data: { login: string; password: string }): Pr
   if (!response.ok) throw new Error(`Login error: ${response.status}`);
   const result = await response.json();
   if (!result.success) throw new Error(result.data?.message || 'Login failed');
+  applyWPAuthPayload({
+    user_id: result.data?.user_id,
+    display_name: result.data?.display_name,
+    email: result.data?.email,
+    avatar: result.data?.avatar || '',
+    is_admin: !!result.data?.is_admin,
+  });
   return result.data;
 }
 
