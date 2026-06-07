@@ -13,6 +13,7 @@ interface WPConfig {
   adminNonce?: string;
   loginNonce?: string;
   registerNonce?: string;
+  googleLoginUrl?: string;
 }
 
 interface MockWPUser {
@@ -284,6 +285,7 @@ function getWPConfig(): WPConfig | null {
     adminNonce: w.versace22_chat.admin_nonce || '',
     loginNonce: w.versace22_chat.login_nonce || '',
     registerNonce: w.versace22_chat.register_nonce || '',
+    googleLoginUrl: w.versace22_chat.google_login_url || '',
   };
 }
 
@@ -472,6 +474,48 @@ export function getWPSessionId(): string {
 
 export function getWPUserId(): number {
   return getWPConfig()?.userId ?? 0;
+}
+
+export function isWPPreviewMock(): boolean {
+  return isMockWP(getWPConfig());
+}
+
+export function hasWPGoogleLogin(): boolean {
+  const config = getWPConfig();
+  return !!config && (isMockWP(config) || !!config.googleLoginUrl);
+}
+
+export async function signInWithGoogleWP(): Promise<void> {
+  const config = getWPConfig();
+  if (!config) throw new Error('WordPress config not available');
+
+  if (isMockWP(config)) {
+    const store = getMockStore();
+    let googleUser = store.users.find((user) => user.email.toLowerCase() === 'google.user@example.com');
+
+    if (!googleUser) {
+      googleUser = {
+        user_id: store.users.length + 1,
+        username: 'google.user',
+        email: 'google.user@example.com',
+        password: '__google_oauth__',
+        display_name: 'Google User',
+        avatar: '',
+        is_admin: false,
+      };
+      store.users = [...store.users, googleUser];
+      saveMockStore(store);
+    }
+
+    setMockWPUser(googleUser);
+    return mockDelay(undefined);
+  }
+
+  if (!config.googleLoginUrl) {
+    throw new Error('Google sign-in is not configured in WordPress yet');
+  }
+
+  window.location.href = config.googleLoginUrl;
 }
 
 export async function sendMessageToWP(
