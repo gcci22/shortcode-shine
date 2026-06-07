@@ -20,7 +20,6 @@ import {
   getWPSessionId,
   parseArtifactsFromContent,
   ParsedArtifact,
-  isWPPreviewMock,
 } from '@/lib/wp-api';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
@@ -58,7 +57,7 @@ const Index = () => {
   const [wpAuthOpen, setWpAuthOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wpLoggedIn = wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user;
-  const allowGuestUsage = !wpMode || !isWPPreviewMock();
+  const requireWordPressAuth = wpMode;
 
   // Load personas from WP on mount
   useEffect(() => {
@@ -157,16 +156,16 @@ const Index = () => {
   }, [activeView]);
 
   useEffect(() => {
-    if (wpMode && !wpLoggedIn && !allowGuestUsage) {
+    if (requireWordPressAuth && !wpLoggedIn) {
       setWpAuthOpen(true);
     }
-  }, [wpMode, wpLoggedIn, allowGuestUsage]);
+  }, [requireWordPressAuth, wpLoggedIn]);
 
   const handleSend = async (
     text: string,
     attachment?: { url: string; type: string; data?: string } | null,
   ) => {
-    if (wpMode && !wpLoggedIn && !allowGuestUsage) {
+    if (requireWordPressAuth && !wpLoggedIn) {
       setWpAuthOpen(true);
       return;
     }
@@ -391,7 +390,7 @@ const Index = () => {
             )}
 
              <div className="shrink-0 pb-4 pt-2">
-               <ChatInput onSend={handleSend} disabled={isTyping} onNewChat={handleNewConversation} requireAuth={wpMode && !wpLoggedIn && !allowGuestUsage} onRequireAuth={() => setWpAuthOpen(true)} />
+               <ChatInput onSend={handleSend} disabled={isTyping} onNewChat={handleNewConversation} requireAuth={requireWordPressAuth && !wpLoggedIn} onRequireAuth={() => setWpAuthOpen(true)} />
             </div>
           </>
         )}
