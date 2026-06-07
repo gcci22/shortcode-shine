@@ -29,7 +29,15 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
     if (wpMode && !userId) return;
     setLoading(true);
     try {
-      setMemories(wpMode ? await getMemoriesWP(userId) : await listCloudMemories(user.id));
+      if (wpMode) {
+        setMemories(await getMemoriesWP(userId));
+      } else if (user?.id) {
+        const cloudMemories = await listCloudMemories(user.id);
+        setMemories(cloudMemories.map((memory) => ({
+          ...memory,
+          persona_id: 0,
+        })));
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to load memories');
     }
@@ -82,9 +90,11 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
         </div>
         {!canAdd && (
           <p className="text-xs text-muted-foreground">
-            {userId > 0
+            {wpMode
+              ? userId > 0
               ? 'Memories require an admin account (manage_options). Sign in as the WordPress admin to add memories.'
-              : 'Sign in to WordPress to save memories.'}
+              : 'Sign in to WordPress to save memories.'
+              : 'Sign in to save memories.'}
           </p>
         )}
         <textarea
