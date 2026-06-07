@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { isPreviewMock } from '@/lib/wp-api';
 
 interface AuthContextType {
   user: User | null;
@@ -26,7 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const wpCfg = (window as any)?.versace22_chat;
-    if (wpCfg) {
+    const previewMock = isPreviewMock();
+    if (wpCfg && !previewMock) {
       const syncWPAuth = () => {
         const currentCfg = (window as any)?.versace22_chat;
         const isLoggedIn = !!currentCfg?.user_logged_in;
