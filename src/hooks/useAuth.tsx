@@ -91,20 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     const wpCfg = (window as any)?.versace22_chat;
-    if (wpCfg?.ajaxurl?.includes('/wp-mock/')) {
-      try {
-        localStorage.removeItem('versace22-mock-user');
-      } catch {}
-      wpCfg.user_logged_in = false;
-      wpCfg.user_id = 0;
-      wpCfg.user_display_name = '';
-      wpCfg.user_email = '';
-      wpCfg.user_avatar = '';
-      wpCfg.is_admin = false;
-      window.dispatchEvent(new Event('versace22-wp-auth-changed'));
-      return;
-    }
-    if (wpCfg?.logout_url) {
+    if (wpCfg?.logout_url && !isPreviewMock()) {
       window.location.href = wpCfg.logout_url;
       return;
     }
