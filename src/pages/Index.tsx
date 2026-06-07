@@ -57,6 +57,7 @@ const Index = () => {
   const [activeArtifact, setActiveArtifact] = useState<ParsedArtifact | null>(null);
   const [wpAuthOpen, setWpAuthOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const wpLoggedIn = wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user;
   const allowGuestUsage = !wpMode || !isWPPreviewMock();
 
   // Load personas from WP on mount
@@ -285,8 +286,6 @@ const Index = () => {
   const displayName = profile?.display_name || user?.email?.split('@')[0] || 'User';
   const initials = displayName.charAt(0).toUpperCase();
   const avatarUrl = profile?.avatar_url || undefined;
-  const wpLoggedIn = wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user;
-
   const activeChatName = isMainChatMode && mainCharacter
     ? mainCharacter.name
     : selectedPersona?.name || 'AI Assistant';
