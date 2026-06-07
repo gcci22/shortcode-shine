@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X, Trash2, Power } from 'lucide-react';
-import { WPMemory, getMemoriesWP, addMemoryWP, updateMemoryWP, deleteMemoryWP, toggleMemoryWP, getWPUserId, getWPPersonaId, isWPAdmin, isWordPress } from '@/lib/wp-api';
+import { getMemoriesWP, addMemoryWP, updateMemoryWP, deleteMemoryWP, toggleMemoryWP, getWPUserId, getWPPersonaId, isWPAdmin, isWordPress } from '@/lib/wp-api';
 import { addCloudMemory, deleteCloudMemory, listCloudMemories, toggleCloudMemory, updateCloudMemory } from '@/lib/cloud-memory';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -10,7 +10,6 @@ interface MemoryDrawerProps {
   onClose: () => void;
 }
 
-type MemoryItem = WPMemory & { id: number | string; persona_id?: number };
 type MemoryItem = {
   id: number | string;
   persona_id: number;
@@ -19,10 +18,6 @@ type MemoryItem = {
   created_at?: string;
 };
 
-/**
- * Admin-only memory manager (v12.3 plugin feature).
- * Memory CRUD endpoints require `manage_options` + the admin nonce.
- */
 export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -34,37 +29,41 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
   const refresh = async () => {
     if (!wpMode && !user?.id) return;
     if (wpMode && !userId) return;
+
     setLoading(true);
     try {
       if (wpMode) {
         setMemories(await getMemoriesWP(userId));
       } else if (user?.id) {
         const cloudMemories = await listCloudMemories(user.id);
-        setMemories(cloudMemories.map((memory) => ({
-          ...memory,
-          persona_id: 0,
-        })));
+        setMemories(cloudMemories.map((memory) => ({ ...memory, persona_id: 0 })));
       }
     } catch (e: any) {
       toast.error(e.message || 'Failed to load memories');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  useEffect(() => { if (open) refresh(); /* eslint-disable-next-line */ }, [open]);
+  useEffect(() => {
+    if (open) refresh();
+  }, [open, user?.id]);
 
   if (!open) return null;
 
   const add = async () => {
     const t = draft.trim();
     if (!t) return;
+
     try {
       if (wpMode) await addMemoryWP(userId, getWPPersonaId(), t);
       else if (user?.id) await addCloudMemory(user.id, t);
       setDraft('');
-      refresh();
+      await refresh();
       toast.success('Memory saved');
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save memory');
+    }
   };
 
   const isPreviewMock = typeof window !== 'undefined' && !!(window as any)?.versace22_chat?.ajaxurl?.includes('/wp-mock/');
@@ -99,37 +98,29 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
           <p className="text-xs text-muted-foreground">
             {wpMode
               ? userId > 0
-              ? 'Memories require an admin account (manage_options). Sign in as the WordPress admin to add memories.'
-              : 'Sign in to WordPress to save memories.'
+                ? 'Memories require an admin account (manage_options). Sign in as the WordPress admin to add memories.'
+                : 'Sign in to WordPress to save memories.'
               : 'Sign in to save memories.'}
           </p>
         )}
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="e.g. The user prefers concise answers in Turkish."
-          rows={3}
-          className="hidden"
-        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {loading && <p className="text-xs text-muted-foreground">Loading…</p>}
-        {!loading && memories.length === 0 && (
-          <p className="text-xs text-muted-foreground">No memories yet. Add one above.</p>
-        )}
-        {memories.map(m => (
+        {!loading && memories.length === 0 && <p className="text-xs text-muted-foreground">No memories yet. Add one above.</p>}
+        {memories.map((m) => (
           <div key={m.id} className={`rounded-md border border-border p-2.5 text-sm ${m.enabled ? '' : 'opacity-50'}`}>
             <textarea
               defaultValue={m.memory_text}
               onBlur={async (e) => {
                 if (e.target.value !== m.memory_text) {
                   try {
-                    if (wpMode) await updateMemoryWP(m.id, e.target.value);
+                    if (wpMode) await updateMemoryWP(Number(m.id), e.target.value);
                     else if (user?.id) await updateCloudMemory(user.id, String(m.id), e.target.value);
-                    refresh();
+                    await refresh();
+                  } catch (err: any) {
+                    toast.error(err.message || 'Failed to update memory');
                   }
-                  catch (err: any) { toast.error(err.message); }
                 }
               }}
               rows={2}
@@ -138,9 +129,9 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
             <div className="flex justify-end gap-1 mt-1">
               <button
                 onClick={async () => {
-                  if (wpMode) await toggleMemoryWP(m.id);
+                  if (wpMode) await toggleMemoryWP(Number(m.id));
                   else if (user?.id) await toggleCloudMemory(user.id, String(m.id));
-                  refresh();
+                  await refresh();
                 }}
                 title="Toggle"
                 className="p-1.5 rounded hover:bg-muted text-muted-foreground"
@@ -149,9 +140,9 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
               </button>
               <button
                 onClick={async () => {
-                  if (wpMode) await deleteMemoryWP(m.id);
+                  if (wpMode) await deleteMemoryWP(Number(m.id));
                   else if (user?.id) await deleteCloudMemory(user.id, String(m.id));
-                  refresh();
+                  await refresh();
                   toast.success('Deleted');
                 }}
                 title="Delete"
