@@ -13,9 +13,7 @@ interface WPConfig {
   adminNonce?: string;
   loginNonce?: string;
   registerNonce?: string;
-  forgotPasswordNonce?: string;
   googleLoginUrl?: string;
-  lostPasswordUrl?: string;
 }
 
 interface MockWPUser {
@@ -266,30 +264,6 @@ function setMockWPUser(user: MockWPUser | null) {
   w.versace22_chat.is_admin = !!user?.is_admin;
 }
 
-function applyWPAuthPayload(payload: {
-  user_id?: number;
-  display_name?: string;
-  email?: string;
-  avatar?: string;
-  is_admin?: boolean;
-}) {
-  if (typeof window === 'undefined') return;
-  const w = window as any;
-  if (!w.versace22_chat) return;
-
-  w.versace22_chat.user_logged_in = !!payload.user_id;
-  w.versace22_chat.user_id = payload.user_id || 0;
-  w.versace22_chat.user_display_name = payload.display_name || '';
-  w.versace22_chat.user_email = payload.email || '';
-  w.versace22_chat.user_avatar = payload.avatar || '';
-  w.versace22_chat.is_admin = payload.is_admin ?? !!w.versace22_chat.is_admin;
-  window.dispatchEvent(new Event('versace22-wp-auth-changed'));
-}
-
-function isOwnedByActiveMockUser(userId: number, activeUserId: number) {
-  return activeUserId > 0 ? userId === activeUserId : userId === 0;
-}
-
 function getWPConfig(): WPConfig | null {
   const w = window as any;
   if (!w.versace22_chat) return null;
@@ -311,9 +285,7 @@ function getWPConfig(): WPConfig | null {
     adminNonce: w.versace22_chat.admin_nonce || '',
     loginNonce: w.versace22_chat.login_nonce || '',
     registerNonce: w.versace22_chat.register_nonce || '',
-    forgotPasswordNonce: w.versace22_chat.forgot_password_nonce || '',
     googleLoginUrl: w.versace22_chat.google_login_url || '',
-    lostPasswordUrl: w.versace22_chat.lost_password_url || '',
   };
 }
 
@@ -409,9 +381,7 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
       case 'aicpp_or_refresh_free':
         return mockDelay({ models: mockModels });
       case 'aicpp_get_projects':
-        return mockDelay({
-          projects: config.userId > 0 && config.isAdmin ? getMockStore().projects : [],
-        });
+        return mockDelay({ projects: getMockStore().projects });
       case 'aicpp_create_project': {
         const store = getMockStore();
         const id = (store.projects.at(-1)?.id || 0) + 1;
@@ -427,16 +397,13 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
         }
         return mockDelay({ ok: true });
       case 'aicpp_get_memories':
-        return mockDelay({
-          memories: getMockStore().memories.filter((m) => isOwnedByActiveMockUser(m.user_id, config.userId)),
-        });
+        return mockDelay({ memories: getMockStore().memories.filter((m) => m.user_id === Number(fields.user_id || 0)) });
       case 'aicpp_add_memory': {
-        if (!config.userId) throw new Error('Sign in to save memories');
         const store = getMockStore();
         const id = (store.memories.at(-1)?.id || 0) + 1;
         store.memories = [
           ...store.memories,
-          { id, user_id: config.userId, persona_id: Number(fields.persona_id || 1), memory_text: String(fields.memory_text || ''), enabled: 1 },
+          { id, user_id: Number(fields.user_id || 0), persona_id: Number(fields.persona_id || 1), memory_text: String(fields.memory_text || ''), enabled: 1 },
         ];
         saveMockStore(store);
         return mockDelay({ id });
@@ -444,21 +411,21 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
       case 'aicpp_update_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId) ? { ...m, memory_text: String(fields.memory_text || '') } : m));
+          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, memory_text: String(fields.memory_text || '') } : m));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
       case 'aicpp_delete_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.filter((m) => !(m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId)));
+          store.memories = store.memories.filter((m) => m.id !== Number(fields.memory_id));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
       case 'aicpp_toggle_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId) ? { ...m, enabled: m.enabled ? 0 : 1 } : m));
+          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, enabled: m.enabled ? 0 : 1 } : m));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
@@ -518,11 +485,6 @@ export function hasWPGoogleLogin(): boolean {
   return !!config && (isMockWP(config) || !!config.googleLoginUrl);
 }
 
-export function hasWPForgotPassword(): boolean {
-  const config = getWPConfig();
-  return !!config && (isMockWP(config) || !!config.lostPasswordUrl);
-}
-
 export async function signInWithGoogleWP(): Promise<void> {
   const config = getWPConfig();
   if (!config) throw new Error('WordPress config not available');
@@ -554,45 +516,6 @@ export async function signInWithGoogleWP(): Promise<void> {
   }
 
   window.location.href = config.googleLoginUrl;
-}
-
-export async function requestPasswordResetWP(loginOrEmail: string): Promise<{ message: string }> {
-  const config = getWPConfig();
-  if (!config) throw new Error('WordPress config not available');
-
-  const value = loginOrEmail.trim();
-  if (!value) throw new Error('Enter your email or username');
-
-  if (isMockWP(config)) {
-    const store = getMockStore();
-    const matchedUser = store.users.find(
-      (item) => item.username.toLowerCase() === value.toLowerCase() || item.email.toLowerCase() === value.toLowerCase(),
-    );
-    if (!matchedUser) {
-      throw new Error('No account was found with that email or username');
-    }
-    return mockDelay({ message: `Preview mode: password reset email simulated for ${matchedUser.email}.` });
-  }
-
-  const formData = new FormData();
-  formData.append('action', 'aicpp_forgot_password');
-  formData.append('nonce', config.forgotPasswordNonce || config.loginNonce || config.nonce);
-  formData.append('login', value);
-
-  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error(`Password reset error: ${response.status}`);
-  const result = await response.json();
-  if (!result.success) throw new Error(result.data?.message || 'Password reset failed');
-  return result.data;
-}
-
-export function openLostPasswordWP() {
-  const config = getWPConfig();
-  if (!config) throw new Error('WordPress config not available');
-
-  if (isMockWP(config)) return;
-  if (!config.lostPasswordUrl) throw new Error('Password recovery is not configured in WordPress yet');
-  window.location.href = config.lostPasswordUrl;
 }
 
 export async function sendMessageToWP(
@@ -811,13 +734,6 @@ export async function registerUserWP(data: { username: string; email: string; pa
   if (!response.ok) throw new Error(`Registration error: ${response.status}`);
   const result = await response.json();
   if (!result.success) throw new Error(result.data?.message || 'Registration failed');
-  applyWPAuthPayload({
-    user_id: result.data?.user_id,
-    display_name: result.data?.display_name,
-    email: result.data?.email || data.email,
-    avatar: result.data?.avatar || '',
-    is_admin: !!result.data?.is_admin,
-  });
   return result.data;
 }
 
@@ -844,13 +760,6 @@ export async function loginUserWP(data: { login: string; password: string }): Pr
   if (!response.ok) throw new Error(`Login error: ${response.status}`);
   const result = await response.json();
   if (!result.success) throw new Error(result.data?.message || 'Login failed');
-  applyWPAuthPayload({
-    user_id: result.data?.user_id,
-    display_name: result.data?.display_name,
-    email: result.data?.email,
-    avatar: result.data?.avatar || '',
-    is_admin: !!result.data?.is_admin,
-  });
   return result.data;
 }
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Menu, LogOut } from 'lucide-react';
 import { ChatSidebar, SidebarView } from '@/components/ChatSidebar';
 import { ChatInput } from '@/components/ChatInput';
@@ -26,7 +26,7 @@ import { useConversations } from '@/hooks/useConversations';
 import { useWPConversations } from '@/hooks/useWPConversations';
 
 const Index = () => {
-  const { user, signOut, profile, loading: authLoading } = useAuth();
+  const { user, signOut, profile } = useAuth();
   const wpMode = isWordPress();
 
   const supaConv = useConversations();
@@ -56,10 +56,7 @@ const Index = () => {
   const [activeArtifact, setActiveArtifact] = useState<ParsedArtifact | null>(null);
   const [wpAuthOpen, setWpAuthOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const wpLoggedIn = useMemo(
-    () => (wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user),
-    [wpMode, user, authLoading],
-  );
+  const wpLoggedIn = wpMode ? !!(window as any)?.versace22_chat?.user_logged_in : !!user;
   const requireWordPressAuth = wpMode;
 
   // Load personas from WP on mount
@@ -163,27 +160,6 @@ const Index = () => {
       setWpAuthOpen(true);
     }
   }, [requireWordPressAuth, wpLoggedIn]);
-
-  useEffect(() => {
-    if (!wpMode) return;
-
-    const syncAuthState = () => {
-      const loggedIn = !!(window as any)?.versace22_chat?.user_logged_in;
-      setWpAuthOpen(!loggedIn);
-      fetchConversations();
-
-      if (!loggedIn) {
-        setActiveConvId(null);
-        setCurrentMessages([]);
-        setSessionId('sess_' + crypto.randomUUID());
-        setMemoryOpen(false);
-        setActiveArtifact(null);
-      }
-    };
-
-    window.addEventListener('versace22-wp-auth-changed', syncAuthState);
-    return () => window.removeEventListener('versace22-wp-auth-changed', syncAuthState);
-  }, [wpMode, fetchConversations]);
 
   const handleSend = async (
     text: string,
@@ -332,7 +308,6 @@ const Index = () => {
         onSignOut={signOut}
         isLoggedIn={wpLoggedIn}
         onOpenAuth={() => setWpAuthOpen(true)}
-        requireAuthForNewChat={requireWordPressAuth && !wpLoggedIn}
       />
 
         <main className="flex-1 flex flex-col min-w-0 relative">
@@ -430,11 +405,7 @@ const Index = () => {
 
           <ArtifactCanvas artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />
 
-          <WPAuthModal
-            open={wpAuthOpen}
-            onClose={() => setWpAuthOpen(false)}
-            required={requireWordPressAuth && !wpLoggedIn}
-          />
+          <WPAuthModal open={wpAuthOpen} onClose={() => setWpAuthOpen(false)} />
       </main>
     </div>
   );

@@ -10,11 +10,7 @@ import { toast } from 'sonner';
  * Sidebar section that lists Projects (v12.3 plugin feature).
  * Admin-only because the underlying CRUD endpoints require manage_options.
  */
-interface ProjectsSectionProps {
-  isLoggedIn?: boolean;
-}
-
-export function ProjectsSection({ isLoggedIn = false }: ProjectsSectionProps) {
+export function ProjectsSection() {
   const [open, setOpen] = useState(true);
   const [projects, setProjects] = useState<WPProject[]>([]);
   const [name, setName] = useState('');
@@ -30,15 +26,7 @@ export function ProjectsSection({ isLoggedIn = false }: ProjectsSectionProps) {
     setLoading(false);
   };
 
-  useEffect(() => {
-    if (!isLoggedIn) {
-      setProjects([]);
-      return;
-    }
-    refresh();
-  }, [isLoggedIn]);
-
-  if (!isLoggedIn) return null;
+  useEffect(() => { refresh(); }, []);
 
   const handleCreate = async () => {
     const n = name.trim();

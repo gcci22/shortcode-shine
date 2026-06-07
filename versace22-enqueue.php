@@ -61,7 +61,6 @@ if (!function_exists('versace22_enqueue_chat_assets')) {
                 'admin_nonce'        => wp_create_nonce('aicpp'),
                 'login_nonce'        => wp_create_nonce('aicpp_login'),
                 'register_nonce'     => wp_create_nonce('aicpp_register'),
-                'forgot_password_nonce' => wp_create_nonce('aicpp_login'),
                 'persona_id'         => $persona_id,
                 'session_id'         => 'sess_' . wp_generate_uuid4(),
                 'user_id'            => $is_logged_in ? intval($current_user->ID) : 0,
@@ -71,8 +70,6 @@ if (!function_exists('versace22_enqueue_chat_assets')) {
                 'user_email'         => $is_logged_in ? $current_user->user_email : '',
                 'user_avatar'        => $is_logged_in ? get_avatar_url($current_user->ID) : '',
                 'logout_url'         => wp_logout_url(home_url()),
-                'lost_password_url'  => wp_lostpassword_url(home_url()),
-                'google_login_url'   => apply_filters('versace22_google_login_url', ''),
             ));
         }
     }

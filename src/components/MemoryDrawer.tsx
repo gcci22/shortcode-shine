@@ -47,8 +47,8 @@ export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
     } catch (e: any) { toast.error(e.message); }
   };
 
-  const isPreviewMock = typeof window !== 'undefined' && !!(window as any)?.versace22_chat?.ajaxurl?.includes('/wp-mock/');
   const canManage = userId > 0 && isWPAdmin();
+  const isPreviewMock = typeof window !== 'undefined' && !!(window as any)?.versace22_chat?.ajaxurl?.includes('/wp-mock/');
   const canUsePreviewMemories = isPreviewMock && userId > 0;
   const canAdd = canManage || canUsePreviewMemories;
 

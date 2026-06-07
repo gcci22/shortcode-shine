@@ -24,7 +24,6 @@ interface ChatSidebarProps {
   onSignOut?: () => void;
   isLoggedIn?: boolean;
   onOpenAuth?: () => void;
-  requireAuthForNewChat?: boolean;
 }
 
 const navItems = [
@@ -53,7 +52,6 @@ export function ChatSidebar({
   onSignOut,
   isLoggedIn = true,
   onOpenAuth,
-  requireAuthForNewChat = false,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [findUsOpen, setFindUsOpen] = useState(false);
@@ -135,7 +133,7 @@ export function ChatSidebar({
           )}
         </nav>
 
-        <ProjectsSection isLoggedIn={isLoggedIn} />
+        <ProjectsSection />
 
         {/* Search */}
         <div className="px-3 mt-3">
@@ -186,7 +184,7 @@ export function ChatSidebar({
         {/* User */}
         <div className="p-3 border-t border-sidebar-border space-y-2">
           <button
-            onClick={requireAuthForNewChat ? onOpenAuth : onNewConversation}
+            onClick={onNewConversation}
             className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             <Plus className="w-4 h-4" />
