@@ -13,7 +13,9 @@ interface WPConfig {
   adminNonce?: string;
   loginNonce?: string;
   registerNonce?: string;
+  forgotPasswordNonce?: string;
   googleLoginUrl?: string;
+  lostPasswordUrl?: string;
 }
 
 interface MockWPUser {
@@ -264,6 +266,30 @@ function setMockWPUser(user: MockWPUser | null) {
   w.versace22_chat.is_admin = !!user?.is_admin;
 }
 
+function applyWPAuthPayload(payload: {
+  user_id?: number;
+  display_name?: string;
+  email?: string;
+  avatar?: string;
+  is_admin?: boolean;
+}) {
+  if (typeof window === 'undefined') return;
+  const w = window as any;
+  if (!w.versace22_chat) return;
+
+  w.versace22_chat.user_logged_in = !!payload.user_id;
+  w.versace22_chat.user_id = payload.user_id || 0;
+  w.versace22_chat.user_display_name = payload.display_name || '';
+  w.versace22_chat.user_email = payload.email || '';
+  w.versace22_chat.user_avatar = payload.avatar || '';
+  w.versace22_chat.is_admin = payload.is_admin ?? !!w.versace22_chat.is_admin;
+  window.dispatchEvent(new Event('versace22-wp-auth-changed'));
+}
+
+function isOwnedByActiveMockUser(userId: number, activeUserId: number) {
+  return activeUserId > 0 ? userId === activeUserId : userId === 0;
+}
+
 function getWPConfig(): WPConfig | null {
   const w = window as any;
   if (!w.versace22_chat) return null;
@@ -285,7 +311,9 @@ function getWPConfig(): WPConfig | null {
     adminNonce: w.versace22_chat.admin_nonce || '',
     loginNonce: w.versace22_chat.login_nonce || '',
     registerNonce: w.versace22_chat.register_nonce || '',
+    forgotPasswordNonce: w.versace22_chat.forgot_password_nonce || '',
     googleLoginUrl: w.versace22_chat.google_login_url || '',
+    lostPasswordUrl: w.versace22_chat.lost_password_url || '',
   };
 }
 
