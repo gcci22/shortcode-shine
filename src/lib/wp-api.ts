@@ -409,7 +409,9 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
       case 'aicpp_or_refresh_free':
         return mockDelay({ models: mockModels });
       case 'aicpp_get_projects':
-        return mockDelay({ projects: getMockStore().projects });
+        return mockDelay({
+          projects: config.userId > 0 && config.isAdmin ? getMockStore().projects : [],
+        });
       case 'aicpp_create_project': {
         const store = getMockStore();
         const id = (store.projects.at(-1)?.id || 0) + 1;
@@ -425,13 +427,16 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
         }
         return mockDelay({ ok: true });
       case 'aicpp_get_memories':
-        return mockDelay({ memories: getMockStore().memories.filter((m) => m.user_id === Number(fields.user_id || 0)) });
+        return mockDelay({
+          memories: getMockStore().memories.filter((m) => isOwnedByActiveMockUser(m.user_id, config.userId)),
+        });
       case 'aicpp_add_memory': {
+        if (!config.userId) throw new Error('Sign in to save memories');
         const store = getMockStore();
         const id = (store.memories.at(-1)?.id || 0) + 1;
         store.memories = [
           ...store.memories,
-          { id, user_id: Number(fields.user_id || 0), persona_id: Number(fields.persona_id || 1), memory_text: String(fields.memory_text || ''), enabled: 1 },
+          { id, user_id: config.userId, persona_id: Number(fields.persona_id || 1), memory_text: String(fields.memory_text || ''), enabled: 1 },
         ];
         saveMockStore(store);
         return mockDelay({ id });
@@ -439,21 +444,21 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
       case 'aicpp_update_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, memory_text: String(fields.memory_text || '') } : m));
+          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId) ? { ...m, memory_text: String(fields.memory_text || '') } : m));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
       case 'aicpp_delete_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.filter((m) => m.id !== Number(fields.memory_id));
+          store.memories = store.memories.filter((m) => !(m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId)));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
       case 'aicpp_toggle_memory':
         {
           const store = getMockStore();
-          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) ? { ...m, enabled: m.enabled ? 0 : 1 } : m));
+          store.memories = store.memories.map((m) => (m.id === Number(fields.memory_id) && isOwnedByActiveMockUser(m.user_id, config.userId) ? { ...m, enabled: m.enabled ? 0 : 1 } : m));
           saveMockStore(store);
         }
         return mockDelay({ ok: true });
