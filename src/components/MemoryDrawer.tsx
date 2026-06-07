@@ -10,12 +10,14 @@ interface MemoryDrawerProps {
   onClose: () => void;
 }
 
+type MemoryItem = WPMemory & { id: number | string; persona_id?: number };
+
 /**
  * Admin-only memory manager (v12.3 plugin feature).
  * Memory CRUD endpoints require `manage_options` + the admin nonce.
  */
 export function MemoryDrawer({ open, onClose }: MemoryDrawerProps) {
-  const [memories, setMemories] = useState<WPMemory[]>([]);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const { user } = useAuth();
