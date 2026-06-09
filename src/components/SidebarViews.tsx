@@ -365,8 +365,8 @@ export function ReferView({ onBackToChat }: ViewProps) {
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-center">
-          <RewardStat label="Referred" value="0" />
-          <RewardStat label="Earned" value={`${conversations.length * 10} pts`} />
+          <RewardStat label="Referred" value={String(referral?.referred ?? 0)} />
+          <RewardStat label="Earned" value={`${referral?.earned ?? conversations.length * 10} pts`} />
           <RewardStat label="Reward" value="50 pts" subtitle="per invite" />
         </div>
 
