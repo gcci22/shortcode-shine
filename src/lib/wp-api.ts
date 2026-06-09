@@ -16,6 +16,43 @@ interface WPConfig {
   googleLoginUrl?: string;
 }
 
+// v12 manifest types
+export interface WPEndpointEntry { action: string; nonce: string; nopriv: boolean }
+export type WPEndpointGroup = Record<string, WPEndpointEntry>;
+export type WPEndpointMap = Record<string, WPEndpointGroup>;
+export type WPCapabilityKey =
+  | 'chat' | 'upload' | 'voice' | 'history' | 'admin'
+  | 'create_project' | 'memories' | 'artifacts'
+  | 'referrals' | 'leaderboard' | 'login' | 'register';
+
+export function getEndpoints(): WPEndpointMap {
+  const w = window as any;
+  return (w?.versace22_chat?.endpoints as WPEndpointMap) || {};
+}
+
+export function getEndpoint(group: string, key: string): WPEndpointEntry | null {
+  return getEndpoints()?.[group]?.[key] || null;
+}
+
+export function getNonces(): Record<string, string> {
+  const w = window as any;
+  return (w?.versace22_chat?.nonces as Record<string, string>) || {};
+}
+
+export function can(cap: WPCapabilityKey): boolean {
+  const w = window as any;
+  const map = w?.versace22_chat?.can;
+  if (map && typeof map === 'object') return !!map[cap];
+  // Sensible fallbacks for v11/earlier handshakes
+  switch (cap) {
+    case 'admin': return !!w?.versace22_chat?.is_admin;
+    case 'login':
+    case 'register': return !w?.versace22_chat?.user_logged_in;
+    case 'chat': return true;
+    default: return !!w?.versace22_chat?.user_logged_in;
+  }
+}
+
 interface MockWPUser {
   user_id: number;
   username: string;
