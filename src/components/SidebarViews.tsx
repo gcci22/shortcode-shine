@@ -1,9 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Trophy, User, Gift, ArrowLeft, Save, X, Camera, Copy, Check, Share2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useConversations } from '@/hooks/useConversations';
 import { useWPConversations } from '@/hooks/useWPConversations';
-import { isWordPress } from '@/lib/wp-api';
+import { isWordPress, can, getLeaderboardWP, getReferralDataWP, updateProfileWP } from '@/lib/wp-api';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
@@ -23,13 +23,70 @@ function useViewData() {
 }
 
 export function LeaderboardView({ onBackToChat }: ViewProps) {
+  const wpMode = isWordPress();
+  const [rows, setRows] = useState<Array<{ name: string; points: number }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!wpMode || !can('leaderboard')) return;
+    let cancelled = false;
+    setLoading(true);
+    getLeaderboardWP()
+      .then((data: any) => {
+        if (cancelled) return;
+        const list = Array.isArray(data?.leaderboard)
+          ? data.leaderboard
+          : Array.isArray(data) ? data : [];
+        setRows(
+          list.map((r: any) => ({
+            name: r.display_name || r.name || r.username || 'User',
+            points: Number(r.points ?? r.score ?? 0),
+          })),
+        );
+      })
+      .catch((e: any) => !cancelled && setError(e?.message || 'Failed to load leaderboard'))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, [wpMode]);
+
+  if (!wpMode || !can('leaderboard')) {
+    return (
+      <SimpleCenterPanel
+        icon={<Trophy className="w-8 h-8 text-primary" />}
+        title="Leaderboard"
+        description="Sign in to see top contributors and most-used personas this week."
+        onBackToChat={onBackToChat}
+      />
+    );
+  }
+
   return (
-    <SimpleCenterPanel
-      icon={<Trophy className="w-8 h-8 text-primary" />}
-      title="Leaderboard"
-      description="Top contributors and most-used personas this week."
-      onBackToChat={onBackToChat}
-    />
+    <div className="flex-1 flex flex-col items-center px-4 py-8 overflow-y-auto">
+      <BackButton onClick={onBackToChat} />
+      <div className="w-full max-w-md space-y-4">
+        <div className="text-center space-y-2">
+          <Trophy className="w-10 h-10 text-primary mx-auto" />
+          <h2 className="text-2xl font-bold text-foreground">Leaderboard</h2>
+          <p className="text-sm text-muted-foreground">Top contributors this week</p>
+        </div>
+        {loading && <p className="text-center text-sm text-muted-foreground">Loading...</p>}
+        {error && <p className="text-center text-sm text-destructive">{error}</p>}
+        {!loading && !error && rows.length === 0 && (
+          <p className="text-center text-sm text-muted-foreground">No entries yet.</p>
+        )}
+        <ul className="space-y-2">
+          {rows.map((r, i) => (
+            <li key={i} className="flex items-center justify-between px-4 py-3 bg-card rounded-xl border border-border">
+              <span className="text-sm font-medium text-foreground truncate">
+                <span className="text-primary mr-2">#{i + 1}</span>{r.name}
+              </span>
+              <span className="text-sm font-semibold text-primary">{r.points} pts</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -54,8 +111,12 @@ export function ProfileView({ onBackToChat }: ViewProps) {
     setSaving(true);
 
     if (wpMode) {
-      // In WP mode, profile editing isn't available server-side yet
-      toast.info('Profile editing is managed through your WordPress account settings.');
+      try {
+        await updateProfileWP({ display_name: newName.trim() });
+        toast.success('Profile updated!');
+      } catch (e: any) {
+        toast.error(e?.message || 'Failed to update profile');
+      }
       setSaving(false);
       setEditing(false);
       return;
@@ -228,8 +289,27 @@ function ProfileField({ label, value }: { label: string; value: string }) {
 export function ReferView({ onBackToChat }: ViewProps) {
   const { user, conversations } = useViewData();
   const [copied, setCopied] = useState(false);
+  const wpMode = isWordPress();
+  const [referral, setReferral] = useState<{ code?: string; referred?: number; earned?: number } | null>(null);
 
-  const referralCode = 'VERSACE-' + (user?.id?.substring(0, 6).toUpperCase() || 'GUEST');
+  useEffect(() => {
+    if (!wpMode || !can('referrals')) return;
+    let cancelled = false;
+    getReferralDataWP()
+      .then((data: any) => {
+        if (cancelled) return;
+        setReferral({
+          code: data?.referral_code || data?.code,
+          referred: Number(data?.referred_count ?? data?.referred ?? 0),
+          earned: Number(data?.points_earned ?? data?.earned ?? 0),
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [wpMode]);
+
+  const referralCode = referral?.code
+    || 'VERSACE-' + (user?.id?.substring(0, 6).toUpperCase() || 'GUEST');
   const referralLink = `${window.location.origin}?ref=${referralCode}`;
 
   const handleCopy = (text: string) => {
@@ -285,8 +365,8 @@ export function ReferView({ onBackToChat }: ViewProps) {
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-center">
-          <RewardStat label="Referred" value="0" />
-          <RewardStat label="Earned" value={`${conversations.length * 10} pts`} />
+          <RewardStat label="Referred" value={String(referral?.referred ?? 0)} />
+          <RewardStat label="Earned" value={`${referral?.earned ?? conversations.length * 10} pts`} />
           <RewardStat label="Reward" value="50 pts" subtitle="per invite" />
         </div>
 

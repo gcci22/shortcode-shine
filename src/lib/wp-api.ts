@@ -16,6 +16,43 @@ interface WPConfig {
   googleLoginUrl?: string;
 }
 
+// v12 manifest types
+export interface WPEndpointEntry { action: string; nonce: string; nopriv: boolean }
+export type WPEndpointGroup = Record<string, WPEndpointEntry>;
+export type WPEndpointMap = Record<string, WPEndpointGroup>;
+export type WPCapabilityKey =
+  | 'chat' | 'upload' | 'voice' | 'history' | 'admin'
+  | 'create_project' | 'memories' | 'artifacts'
+  | 'referrals' | 'leaderboard' | 'login' | 'register';
+
+export function getEndpoints(): WPEndpointMap {
+  const w = window as any;
+  return (w?.versace22_chat?.endpoints as WPEndpointMap) || {};
+}
+
+export function getEndpoint(group: string, key: string): WPEndpointEntry | null {
+  return getEndpoints()?.[group]?.[key] || null;
+}
+
+export function getNonces(): Record<string, string> {
+  const w = window as any;
+  return (w?.versace22_chat?.nonces as Record<string, string>) || {};
+}
+
+export function can(cap: WPCapabilityKey): boolean {
+  const w = window as any;
+  const map = w?.versace22_chat?.can;
+  if (map && typeof map === 'object') return !!map[cap];
+  // Sensible fallbacks for v11/earlier handshakes
+  switch (cap) {
+    case 'admin': return !!w?.versace22_chat?.is_admin;
+    case 'login':
+    case 'register': return !w?.versace22_chat?.user_logged_in;
+    case 'chat': return true;
+    default: return !!w?.versace22_chat?.user_logged_in;
+  }
+}
+
 interface MockWPUser {
   user_id: number;
   username: string;
@@ -441,9 +478,14 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
     }
   }
 
+  // v12: resolve nonce from the manifest when possible
+  const nonceFromManifest = resolveNonceForAction(action);
+  const nonce = nonceFromManifest
+    || (useAdminNonce ? (config.adminNonce || config.nonce) : config.nonce);
+
   const formData = new FormData();
   formData.append('action', action);
-  formData.append('nonce', useAdminNonce ? (config.adminNonce || config.nonce) : config.nonce);
+  formData.append('nonce', nonce);
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined || value === null) continue;
     formData.append(key, typeof value === 'number' ? String(value) : (value as any));
@@ -454,6 +496,24 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
   const result = await response.json();
   if (!result.success) throw new Error(result.data?.message || `${action} failed`);
   return result.data;
+}
+
+/**
+ * Walk the v12 endpoint manifest to find which nonce group an action belongs to,
+ * then return the matching nonce from window.versace22_chat.nonces.
+ */
+function resolveNonceForAction(action: string): string {
+  const eps = getEndpoints();
+  const nonces = getNonces();
+  for (const group of Object.keys(eps)) {
+    for (const key of Object.keys(eps[group])) {
+      const entry = eps[group][key];
+      if (entry?.action === action && entry.nonce && nonces[entry.nonce]) {
+        return nonces[entry.nonce];
+      }
+    }
+  }
+  return '';
 }
 
 export function isWordPress(): boolean {
@@ -893,4 +953,63 @@ export async function listArtifactsWP(): Promise<any> {
 
 export async function deleteArtifactWP(id: number): Promise<void> {
   await wpFetch('aicpp_delete_artifact', { artifact_id: id }, true);
+}
+
+// ============================================================
+// v12: Persona admin endpoints (admin-only, manage_options)
+// ============================================================
+
+export async function getPersonaWP(id: number): Promise<any> {
+  return wpFetch('aicpp_get_persona', { persona_id: id }, true);
+}
+
+export async function savePersonaWP(payload: {
+  id?: number;
+  name: string;
+  description?: string;
+  model?: string;
+  visibility?: 'public' | 'private';
+  avatar_initials?: string;
+  avatar_color?: string;
+  system_prompt?: string;
+}): Promise<{ id: number }> {
+  return wpFetch('aicpp_save_persona', payload as any, true);
+}
+
+export async function deletePersonaWP(id: number): Promise<void> {
+  await wpFetch('aicpp_delete_persona', { persona_id: id }, true);
+}
+
+export async function assignPersonaWP(personaId: number, userId: number): Promise<void> {
+  await wpFetch('aicpp_assign_persona', { persona_id: personaId, user_id: userId }, true);
+}
+
+export async function unassignPersonaWP(personaId: number, userId: number): Promise<void> {
+  await wpFetch('aicpp_unassign_persona', { persona_id: personaId, user_id: userId }, true);
+}
+
+export async function bulkAssignPersonaWP(personaId: number, userIds: number[]): Promise<void> {
+  await wpFetch(
+    'aicpp_bulk_assign',
+    { persona_id: personaId, user_ids: JSON.stringify(userIds) },
+    true,
+  );
+}
+
+export async function getUserPersonasWP(userId: number): Promise<any> {
+  return wpFetch('aicpp_get_user_personas', { user_id: userId }, true);
+}
+
+export async function getPersonaUsersWP(personaId: number): Promise<any> {
+  return wpFetch('aicpp_get_persona_users', { persona_id: personaId }, true);
+}
+
+export async function searchUsersWP(query: string): Promise<any> {
+  return wpFetch('aicpp_search_users', { query }, true);
+}
+
+// TTS alias matching the doc-friendly name
+export async function speakWP(text: string, voice = 'alloy'): Promise<string> {
+  const data = await wpFetch('aicpp_speak', { text, voice });
+  return data.audio as string;
 }
