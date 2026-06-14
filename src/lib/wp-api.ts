@@ -492,9 +492,23 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
   }
 
   const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
+  // MISS D: nonce-stale auto-recovery. WP returns 403 or text "-1" when expired.
+  const text = await response.text();
+  if ((response.status === 403 || text.trim() === '-1') && !(fields as any).__retried) {
+    try { sessionStorage.setItem('aicpp_nonce_stale', '1'); } catch {}
+    // Reload once to let WP re-localize fresh nonces via the bridge.
+    if (!sessionStorage.getItem('aicpp_reloaded_for_nonce')) {
+      sessionStorage.setItem('aicpp_reloaded_for_nonce', '1');
+      location.reload();
+      throw new Error('Refreshing session…');
+    }
+  }
   if (!response.ok) throw new Error(`Server error: ${response.status}`);
-  const result = await response.json();
+  let result: any;
+  try { result = JSON.parse(text); } catch { throw new Error('Bad response'); }
   if (!result.success) throw new Error(result.data?.message || `${action} failed`);
+  // Clear the reload guard on the first successful call
+  try { sessionStorage.removeItem('aicpp_reloaded_for_nonce'); } catch {}
   return result.data;
 }
 
