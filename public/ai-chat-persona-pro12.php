@@ -1,12 +1,35 @@
 <?php
+// Define plugin version for bridge compatibility checks
+// MUST match the Version: header below for versace22 bridge harmony
+if (!defined('AI_CHAT_PERSONA_PRO_VERSION')) {
+    define('AI_CHAT_PERSONA_PRO_VERSION', '12.3');
+}
 /**
  * Plugin Name: AI Chat Persona Pro - Ultimate Character Engine
  * Description: AI Chat with Main Site Character, Public/Private Personas, Per-Client Assignment, Emotional Intelligence, Rewards System, Character Binding & 5-Slot Hidden Injection
- * Version: 12.0
+ * Version: 12.3
  * Author: AI Pipeline Pro
  */
-
 if (!defined('ABSPATH')) exit;
+// VERSACE22 INTEGRATION: Soft-load bridge to prevent fatal on missing dependency
+$versace22_bridge_path = plugin_dir_path(__FILE__) . 'versace22-enqueue.php';
+if (file_exists($versace22_bridge_path)) {
+    require_once $versace22_bridge_path;
+    // Register this plugin instance with the versace22 bridge for bidirectional communication
+    if (function_exists('versace22_register_plugin')) {
+        versace22_register_plugin('ai-chat-persona-pro', __FILE__, AI_CHAT_PERSONA_PRO_VERSION);
+    }
+} else {
+    // Defer notice to admin_init so it renders properly
+    add_action('admin_init', function () {
+        add_action('admin_notices', function () {
+            echo '<div class="notice notice-error"><p><strong>AI Chat Persona Pro:</strong> versace22-enqueue.php is missing. The plugin will run in standalone mode with limited functionality. Place versace22-enqueue.php in the same folder for full integration.</p></div>';
+        });
+    });
+    if (function_exists('error_log')) {
+        error_log('[AI Chat Persona Pro] WARNING: versace22-enqueue.php not found. Running in standalone mode.');
+    }
+}
 
 class AI_Chat_Persona_Pro_Ultimate {
 
@@ -18,7 +41,12 @@ class AI_Chat_Persona_Pro_Ultimate {
     private $table_analytics;
     private $table_injection_log;
     private $table_injection_state;
-    private $version = '12.0';
+    private $table_referrals;
+    private $table_memories;
+    private $table_projects;
+    private $table_project_files;
+    private $table_artifacts;
+    private $version = '12.3';
 
     public static function get_instance() {
         if (null === self::$instance) {
@@ -29,6 +57,7 @@ class AI_Chat_Persona_Pro_Ultimate {
 
     public function __construct() {
         global $wpdb;
+        $this->check_versace22_bridge();
         $this->table_conversations      = $wpdb->prefix . 'aicpp_conversations';
         $this->table_messages            = $wpdb->prefix . 'aicpp_messages';
         $this->table_personas            = $wpdb->prefix . 'aicpp_personas';
@@ -36,6 +65,11 @@ class AI_Chat_Persona_Pro_Ultimate {
         $this->table_analytics           = $wpdb->prefix . 'aicpp_analytics';
         $this->table_injection_log       = $wpdb->prefix . 'aicpp_injection_log';
         $this->table_injection_state     = $wpdb->prefix . 'aicpp_injection_state';
+        $this->table_referrals          = $wpdb->prefix . 'aicpp_referrals';
+        $this->table_memories            = $wpdb->prefix . 'aicpp_memories';
+        $this->table_projects            = $wpdb->prefix . 'aicpp_projects';
+        $this->table_project_files       = $wpdb->prefix . 'aicpp_project_files';
+        $this->table_artifacts           = $wpdb->prefix . 'aicpp_artifacts';
 
         register_activation_hook(__FILE__, [$this, 'activate']);
         add_action('admin_menu', [$this, 'add_admin_menus']);
@@ -70,12 +104,154 @@ class AI_Chat_Persona_Pro_Ultimate {
         add_action('wp_ajax_nopriv_aicpp_transcribe_audio', [$this, 'ajax_transcribe_audio']);
         add_action('wp_ajax_nopriv_aicpp_register_user', [$this, 'ajax_register_user']);
         add_action('wp_ajax_nopriv_aicpp_login_user', [$this, 'ajax_login_user']);
+        add_action('wp_ajax_aicpp_update_profile', [$this, 'ajax_update_profile']);
+        add_action('wp_ajax_aicpp_get_leaderboard', [$this, 'ajax_get_leaderboard']);
+        add_action('wp_ajax_aicpp_get_referral_data', [$this, 'ajax_get_referral_data']);
+        add_action('wp_ajax_aicpp_search_messages', [$this, 'ajax_search_messages']);
+        add_action('wp_ajax_aicpp_pin_conversation', [$this, 'ajax_pin_conversation']);
+        add_action('wp_ajax_aicpp_speak', [$this, 'ajax_speak']);
+        // Feature 2: Persistent Memory
+        add_action('wp_ajax_aicpp_get_memories', [$this, 'ajax_get_memories']);
+        add_action('wp_ajax_aicpp_add_memory', [$this, 'ajax_add_memory']);
+        add_action('wp_ajax_aicpp_update_memory', [$this, 'ajax_update_memory']);
+        add_action('wp_ajax_aicpp_delete_memory', [$this, 'ajax_delete_memory']);
+        add_action('wp_ajax_aicpp_toggle_memory', [$this, 'ajax_toggle_memory']);
+        // Feature 3: Projects
+        add_action('wp_ajax_aicpp_get_projects', [$this, 'ajax_get_projects']);
+        add_action('wp_ajax_aicpp_create_project', [$this, 'ajax_create_project']);
+        add_action('wp_ajax_aicpp_update_project', [$this, 'ajax_update_project']);
+        add_action('wp_ajax_aicpp_delete_project', [$this, 'ajax_delete_project']);
+        add_action('wp_ajax_aicpp_attach_project_file', [$this, 'ajax_attach_project_file']);
+        add_action('wp_ajax_aicpp_detach_project_file', [$this, 'ajax_detach_project_file']);
+        add_action('wp_ajax_aicpp_assign_conversation_project', [$this, 'ajax_assign_conversation_project']);
+        // Feature 4: Artifacts
+        add_action('wp_ajax_aicpp_save_artifact', [$this, 'ajax_save_artifact']);
+        add_action('wp_ajax_aicpp_get_artifact', [$this, 'ajax_get_artifact']);
+        add_action('wp_ajax_aicpp_list_artifacts', [$this, 'ajax_list_artifacts']);
+        add_action('wp_ajax_aicpp_delete_artifact', [$this, 'ajax_delete_artifact']);
+        // Feature 6: OpenRouter free models preset
+        add_action('wp_ajax_aicpp_or_free_models', [$this, 'ajax_or_free_models']);
+        add_action('wp_ajax_aicpp_or_refresh_free', [$this, 'ajax_or_refresh_free']);
 
         // Main character chat (no persona_id needed)
         add_action('wp_ajax_aicpp_chat_main', [$this, 'handle_chat_main']);
         add_action('wp_ajax_nopriv_aicpp_chat_main', [$this, 'handle_chat_main']);
 
         add_shortcode('ai_chat_persona', [$this, 'chat_shortcode']);
+
+        // VERSACE22 INTEGRATION: Register all endpoints with bridge
+        if (function_exists('versace22_register_endpoints')) {
+            versace22_register_endpoints($this->get_endpoint_manifest());
+        }
+    }
+
+    /**
+     * Check if versace22-enqueue is active and compatible
+     * Reverse dependency check - ensures the bridge is present
+     * Sets $this->bridge_ready so other methods can adapt behavior
+     */
+    private $bridge_ready = false;
+    /**
+     * Detect the bridge by its public API, not by manifest contents.
+     * Manifest is keyed by 'chat'/'personas'/etc (never 'ai-chat-persona-pro'),
+     * AND this runs before the plugin registers its endpoints, so any content
+     * check here always fails. API presence is the only reliable signal.
+     */
+    public function check_versace22_bridge() {
+        $has_render   = function_exists('versace22_render_app');
+        $has_manifest = function_exists('versace22_get_endpoint_manifest');
+        if (!$has_render || !$has_manifest) {
+            add_action('admin_notices', function() {
+                echo '<div class="notice notice-warning"><p><strong>AI Chat Persona Pro:</strong> versace22-enqueue.php bridge API not detected. Running in standalone mode.</p></div>';
+            });
+            if (function_exists('error_log')) {
+                error_log('[AI Chat Persona Pro] NOTICE: versace22 bridge API not found; standalone mode.');
+            }
+            $this->bridge_ready = false;
+            return false;
+        }
+        $this->bridge_ready = true;
+        return true;
+    }
+
+    /**
+     * Return registered endpoints for external discovery (REST fallback)
+     * NOTE: Primary transport is admin-ajax via versace22 bridge.
+     * This method is reserved for future REST API v2 expansion.
+     */
+    public function get_registered_endpoints() {
+        // Bridge-native endpoints are the canonical transport.
+        // If you implement REST API handlers later, map them here.
+        return apply_filters('ai_chat_persona_pro_endpoints', array());
+    }
+
+
+
+    // VERSACE22 INTEGRATION: Provide endpoint manifest to bridge
+    // Manifest format version: v12 (matches bridge v12.x contract)
+    // If you add/remove endpoints, bump the plugin version AND update bridge max version.
+    public function get_endpoint_manifest() {
+        return [
+            'chat' => ['action' => 'aicpp_chat', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+            'chat_main' => ['action' => 'aicpp_chat_main', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+            'transcribe_audio' => ['action' => 'aicpp_transcribe_audio', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+            'upload_file' => ['action' => 'aicpp_upload_file', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+            'speak' => ['action' => 'aicpp_speak', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+            'search_messages' => ['action' => 'aicpp_search_messages', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+            'conversations' => [
+                ['key' => 'list', 'action' => 'aicpp_get_conversations', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+                ['key' => 'load', 'action' => 'aicpp_load_conversation', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+                ['key' => 'delete', 'action' => 'aicpp_delete_conversation', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+                ['key' => 'pin', 'action' => 'aicpp_pin_conversation', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'assign_to_project', 'action' => 'aicpp_assign_conversation_project', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+            ],
+            'personas' => [
+                ['key' => 'mine', 'action' => 'aicpp_get_my_personas', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => true],
+                ['key' => 'get', 'action' => 'aicpp_get_persona', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'save', 'action' => 'aicpp_save_persona', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'delete', 'action' => 'aicpp_delete_persona', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'assign', 'action' => 'aicpp_assign_persona', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'unassign', 'action' => 'aicpp_unassign_persona', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'bulk_assign', 'action' => 'aicpp_bulk_assign', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'user_personas', 'action' => 'aicpp_get_user_personas', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'persona_users', 'action' => 'aicpp_get_persona_users', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'search_users', 'action' => 'aicpp_search_users', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+            ],
+            'projects' => [
+                ['key' => 'list', 'action' => 'aicpp_get_projects', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'create', 'action' => 'aicpp_create_project', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'update', 'action' => 'aicpp_update_project', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'delete', 'action' => 'aicpp_delete_project', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'attach_file', 'action' => 'aicpp_attach_project_file', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'detach_file', 'action' => 'aicpp_detach_project_file', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+            ],
+            'memories' => [
+                ['key' => 'list', 'action' => 'aicpp_get_memories', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'add', 'action' => 'aicpp_add_memory', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'update', 'action' => 'aicpp_update_memory', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'delete', 'action' => 'aicpp_delete_memory', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'toggle', 'action' => 'aicpp_toggle_memory', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+            ],
+            'artifacts' => [
+                ['key' => 'list', 'action' => 'aicpp_list_artifacts', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'get', 'action' => 'aicpp_get_artifact', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'save', 'action' => 'aicpp_save_artifact', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'delete', 'action' => 'aicpp_delete_artifact', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+            ],
+            'rewards' => [
+                ['key' => 'referrals', 'action' => 'aicpp_get_referral_data', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'leaderboard', 'action' => 'aicpp_get_leaderboard', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+            ],
+            'account' => [
+                ['key' => 'update_profile', 'action' => 'aicpp_update_profile', 'nonce' => 'aicpp_chat', 'cap' => 'read', 'nopriv' => false],
+                ['key' => 'login', 'action' => 'aicpp_login_user', 'nonce' => 'aicpp_login', 'cap' => '', 'nopriv' => true],
+                ['key' => 'register', 'action' => 'aicpp_register_user', 'nonce' => 'aicpp_register', 'cap' => '', 'nopriv' => true],
+            ],
+            'models' => [
+                ['key' => 'free_models', 'action' => 'aicpp_or_free_models', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+                ['key' => 'refresh_free', 'action' => 'aicpp_or_refresh_free', 'nonce' => 'aicpp', 'cap' => 'manage_options', 'nopriv' => false],
+            ],
+        ];
     }
 
     // ===================== DB UPGRADE CHECK =====================
@@ -101,12 +277,13 @@ class AI_Chat_Persona_Pro_Ultimate {
             title varchar(255) DEFAULT '',
             token_count int(11) DEFAULT 0,
             is_main_chat tinyint(1) DEFAULT 0,
+            pinned tinyint(1) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             updated_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY idx_session_id (session_id),
             KEY idx_user_id (user_id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_messages} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -117,7 +294,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             KEY idx_conversation_id (conversation_id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_personas} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -137,7 +314,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             created_by bigint(20) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_persona_assignments} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -149,7 +326,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             UNIQUE KEY idx_persona_user (persona_id,user_id),
             KEY idx_user_id (user_id),
             KEY idx_persona_id (persona_id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_analytics} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -157,7 +334,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             tokens_used int(11) DEFAULT 0,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_injection_log} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -166,7 +343,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             message_preview text,
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
 
         dbDelta("CREATE TABLE {$this->table_injection_state} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -176,7 +353,82 @@ class AI_Chat_Persona_Pro_Ultimate {
             updated_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY  (id),
             UNIQUE KEY idx_user_key (user_key)
-        ) $charset;");
+        ) ENGINE=InnoDB $charset");
+
+        dbDelta("CREATE TABLE {$this->table_referrals} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            referrer_user_id bigint(20) NOT NULL,
+            referred_user_id bigint(20) NOT NULL,
+            referral_code varchar(64) DEFAULT '',
+            points_awarded int(11) DEFAULT 0,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            UNIQUE KEY idx_referred_user (referred_user_id),
+            KEY idx_referrer_user (referrer_user_id),
+            KEY idx_referral_code (referral_code)
+        ) ENGINE=InnoDB $charset");
+
+        dbDelta("CREATE TABLE {$this->table_memories} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            persona_id bigint(20) DEFAULT 0,
+            memory_text varchar(500) NOT NULL,
+            enabled tinyint(1) DEFAULT 1,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY idx_user_id (user_id),
+            KEY idx_persona_id (persona_id)
+        ) ENGINE=InnoDB $charset");
+
+        dbDelta("CREATE TABLE {$this->table_projects} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            name varchar(255) NOT NULL,
+            description text,
+            custom_instructions longtext,
+            color varchar(20) DEFAULT '#667eea',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY idx_user_id (user_id)
+        ) ENGINE=InnoDB $charset");
+
+        dbDelta("CREATE TABLE {$this->table_project_files} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            project_id bigint(20) NOT NULL,
+            file_name varchar(255) NOT NULL,
+            file_url varchar(1024) DEFAULT '',
+            file_type varchar(100) DEFAULT '',
+            content_excerpt longtext,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY idx_project_id (project_id)
+        ) ENGINE=InnoDB $charset");
+
+        dbDelta("CREATE TABLE {$this->table_artifacts} (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            conversation_id bigint(20) NOT NULL,
+            user_id bigint(20) NOT NULL,
+            title varchar(255) DEFAULT '',
+            artifact_type varchar(40) NOT NULL,
+            content longtext NOT NULL,
+            version int(11) DEFAULT 1,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY idx_conversation_id (conversation_id),
+            KEY idx_user_id (user_id)
+        ) ENGINE=InnoDB $charset");
+
+        // Add project_id column to conversations if missing (idempotent)
+        $col = $wpdb->get_var($wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'project_id'",
+            DB_NAME, $this->table_conversations
+        ));
+        if (!$col) {
+            $wpdb->query("ALTER TABLE {$this->table_conversations} ADD COLUMN project_id bigint(20) DEFAULT 0, ADD KEY idx_project_id (project_id)");
+        }
 
         $this->create_defaults();
     }
@@ -226,7 +478,12 @@ class AI_Chat_Persona_Pro_Ultimate {
         if (empty($plain)) return '';
         $key = wp_salt('auth');
         $iv_length = openssl_cipher_iv_length('aes-256-cbc');
-        $iv = openssl_random_pseudo_bytes($iv_length);
+        $strong = false;
+        $iv = openssl_random_pseudo_bytes($iv_length, $strong);
+        if (!$strong) {
+            // Fall back to PHP's CSPRNG if available
+            $iv = function_exists('random_bytes') ? random_bytes($iv_length) : $iv;
+        }
         $encrypted = openssl_encrypt($plain, 'aes-256-cbc', $key, 0, $iv);
         return base64_encode($iv . '::' . $encrypted);
     }
@@ -234,13 +491,16 @@ class AI_Chat_Persona_Pro_Ultimate {
     private function decrypt_api_key($stored) {
         if (empty($stored)) return '';
         $key = wp_salt('auth');
-        $data = base64_decode($stored);
-        if ($data === false) return $stored;
-        $parts = explode('::', $data, 2);
-        if (count($parts) !== 2) return $stored;
-        list($iv, $encrypted) = $parts;
+        $data = base64_decode($stored, true); // strict mode
+        if ($data === false) return $stored; // not encrypted, return as-is
+        $iv_length = openssl_cipher_iv_length('aes-256-cbc');
+        if (strlen($data) < $iv_length + 2) return '';
+        $iv = substr($data, 0, $iv_length);
+        // Confirm separator sits exactly after the fixed-length IV
+        if (substr($data, $iv_length, 2) !== '::') return '';
+        $encrypted = substr($data, $iv_length + 2);
         $decrypted = openssl_decrypt($encrypted, 'aes-256-cbc', $key, 0, $iv);
-        return $decrypted !== false ? $decrypted : $stored;
+        return $decrypted !== false ? $decrypted : '';
     }
 
     private function get_api_key($provider) {
@@ -262,21 +522,44 @@ class AI_Chat_Persona_Pro_Ultimate {
     }
 
     private function get_client_ip() {
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-        return filter_var($ip, FILTER_VALIDATE_IP) ? $ip : '0.0.0.0';
+        $candidates = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
+        foreach ($candidates as $key) {
+            if (empty($_SERVER[$key])) continue;
+            $raw = wp_unslash($_SERVER[$key]);
+            // X-Forwarded-For can be a comma-separated list; take the first.
+            $ip = trim(explode(',', $raw)[0]);
+            if (filter_var($ip, FILTER_VALIDATE_IP)) return $ip;
+        }
+        return '0.0.0.0';
     }
 
     // ===================== CONVERSATION OWNERSHIP =====================
     private function verify_conversation_ownership($conv) {
         $user_id = get_current_user_id();
-        if ($user_id) return (int)$conv->user_id === $user_id;
-        $session_id = sanitize_text_field($_POST['session_id'] ?? '');
-        return !empty($session_id) && $conv->session_id === $session_id;
+        $session_id = isset($_POST['session_id']) ? sanitize_text_field(wp_unslash($_POST['session_id'])) : '';
+        $row_user_id = (int) $conv->user_id;
+        $row_session = (string) $conv->session_id;
+
+        // Logged-in path: own row OR own a prior guest row by matching session id.
+        if ($user_id) {
+            if ($row_user_id === $user_id) return true;
+            if ($row_user_id === 0 && !empty($session_id) && !empty($row_session) && hash_equals($row_session, $session_id)) {
+                return true;
+            }
+            return false;
+        }
+
+        // Guest path: only guest-owned rows (user_id = 0) with a matching session id.
+        if ($row_user_id !== 0) return false;
+        if (empty($session_id) || empty($row_session)) return false;
+        return hash_equals($row_session, $session_id);
     }
 
     // ===================== PERSONA ACCESS CHECK =====================
     private function user_can_access_persona($user_id, $persona_id) {
-        if (!$user_id) return false;
+        $user_id = (int) $user_id;
+        $persona_id = (int) $persona_id;
+        if (!$user_id || !$persona_id) return false;
         if (user_can($user_id, 'manage_options')) return true;
 
         global $wpdb;
@@ -321,7 +604,7 @@ class AI_Chat_Persona_Pro_Ultimate {
 
     // ===================== ADMIN STYLES =====================
     public function admin_styles() {
-        $page = $_GET['page'] ?? '';
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
         if (strpos($page, 'aicpp') === false && $page !== 'ai-chat-persona-pro') return;
         ?>
         <style>
@@ -402,25 +685,7 @@ class AI_Chat_Persona_Pro_Ultimate {
     }
 
     // ===================== ADMIN MENUS (with emojis) =====================
-    public function add_admin_menus() {
-        add_menu_page(
-            'AI Chat Pro',
-            '💬 AI Chat Pro',
-            'manage_options',
-            'ai-chat-persona-pro',
-            [$this, 'page_dashboard'],
-            'dashicons-format-chat',
-            30
-        );
-        add_submenu_page('ai-chat-persona-pro', 'Dashboard', '📊 Dashboard', 'manage_options', 'ai-chat-persona-pro', [$this, 'page_dashboard']);
-        add_submenu_page('ai-chat-persona-pro', 'Main Character', '🌟 Main Character', 'manage_options', 'aicpp-main-character', [$this, 'page_main_character']);
-        add_submenu_page('ai-chat-persona-pro', 'Personas', '🎭 Personas', 'manage_options', 'aicpp-personas', [$this, 'page_personas']);
-        add_submenu_page('ai-chat-persona-pro', 'Character Binding', '🔗 Character Binding', 'manage_options', 'aicpp-binding', [$this, 'page_binding']);
-        add_submenu_page('ai-chat-persona-pro', 'Emotional Intelligence', '🧠 Emotional Intelligence', 'manage_options', 'aicpp-ei', [$this, 'page_ei']);
-        add_submenu_page('ai-chat-persona-pro', 'Rewards System', '🏆 Rewards System', 'manage_options', 'aicpp-rewards', [$this, 'page_rewards']);
-        add_submenu_page('ai-chat-persona-pro', 'Hidden Injection', '💉 Hidden Injection', 'manage_options', 'aicpp-injection', [$this, 'page_injection']);
-        add_submenu_page('ai-chat-persona-pro', 'Settings', '⚙️ Settings', 'manage_options', 'aicpp-settings', [$this, 'page_settings']);
-    }
+    public function add_admin_menus() { add_menu_page('AI Chat Pro','🤖 AI Chat Pro','manage_options','ai-chat-persona-pro',[$this,'page_dashboard'],'dashicons-format-chat',30); add_submenu_page('ai-chat-persona-pro','Dashboard','📊 Dashboard','manage_options','ai-chat-persona-pro',[$this,'page_dashboard']); add_submenu_page('ai-chat-persona-pro','Main Character','⭐ Main Character','manage_options','aicpp-main-character',[$this,'page_main_character']); add_submenu_page('ai-chat-persona-pro','Personas','🎭 Personas','manage_options','aicpp-personas',[$this,'page_personas']); add_submenu_page('ai-chat-persona-pro','Character Binding','🔗 Character Binding','manage_options','aicpp-binding',[$this,'page_binding']); add_submenu_page('ai-chat-persona-pro','Emotional Intelligence','💛 Emotional Intelligence','manage_options','aicpp-ei',[$this,'page_ei']); add_submenu_page('ai-chat-persona-pro','Rewards System','🏆 Rewards System','manage_options','aicpp-rewards',[$this,'page_rewards']); add_submenu_page('ai-chat-persona-pro','Hidden Injection','💉 Hidden Injection','manage_options','aicpp-injection',[$this,'page_injection']); add_submenu_page('ai-chat-persona-pro','Memory','🧠 Memory','manage_options','aicpp-memory',[$this,'page_memory']); add_submenu_page('ai-chat-persona-pro','Projects','📁 Projects','manage_options','aicpp-projects',[$this,'page_projects']); add_submenu_page('ai-chat-persona-pro','Artifacts','🎨 Artifacts','manage_options','aicpp-artifacts',[$this,'page_artifacts']); add_submenu_page('ai-chat-persona-pro','Settings','⚙️ Settings','manage_options','aicpp-settings',[$this,'page_settings']); }
 
     // ===================== DASHBOARD =====================
     public function page_dashboard() {
@@ -438,7 +703,7 @@ class AI_Chat_Persona_Pro_Ultimate {
         $provider     = get_option('aicpp_api_provider', 'openai');
         $provider_names = [
             'openai' => 'OpenAI', 'anthropic' => 'Anthropic (Claude)', 'google' => 'Google (Gemini)',
-            'deepseek' => 'DeepSeek', 'openrouter' => 'OpenRouter', 'mistral' => 'Mistral AI', 'groq' => 'Groq',
+            'deepseek' => 'DeepSeek', 'openrouter' => 'OpenRouter (Free Models)', 'mistral' => 'Mistral AI', 'groq' => 'Groq',
         ];
         ?>
         <div class="wrap aicpp-wrap">
@@ -512,14 +777,14 @@ class AI_Chat_Persona_Pro_Ultimate {
 
         if (isset($_POST['save_main_char']) && check_admin_referer('aicpp_main_char')) {
             update_option('aicpp_main_char_enabled', isset($_POST['enabled']) ? '1' : '0');
-            update_option('aicpp_main_char_name', sanitize_text_field($_POST['name'] ?? 'AI Assistant'));
-            update_option('aicpp_main_char_description', sanitize_textarea_field($_POST['description'] ?? ''));
-            update_option('aicpp_main_char_avatar_initials', sanitize_text_field(mb_substr($_POST['avatar_initials'] ?? 'AI', 0, 4)));
-            update_option('aicpp_main_char_avatar_color', sanitize_hex_color($_POST['avatar_color'] ?? '#667eea') ?: '#667eea');
-            update_option('aicpp_main_char_system_prompt', wp_kses_post($_POST['system_prompt'] ?? ''));
-            update_option('aicpp_main_char_model', sanitize_text_field($_POST['model'] ?? 'gpt-4'));
-            update_option('aicpp_main_char_temperature', max(0.0, min(2.0, floatval($_POST['temperature'] ?? 0.7))));
-            update_option('aicpp_main_char_max_tokens', max(1, min(128000, intval($_POST['max_tokens'] ?? 2000))));
+            update_option('aicpp_main_char_name', sanitize_text_field(wp_unslash($_POST['name'] ?? 'AI Assistant')));
+            update_option('aicpp_main_char_description', sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')));
+            update_option('aicpp_main_char_avatar_initials', sanitize_text_field(mb_substr(wp_unslash($_POST['avatar_initials'] ?? 'AI'), 0, 4)));
+            update_option('aicpp_main_char_avatar_color', sanitize_hex_color(wp_unslash($_POST['avatar_color'] ?? '#667eea')) ?: '#667eea');
+            update_option('aicpp_main_char_system_prompt', mb_substr((string) wp_unslash($_POST['system_prompt'] ?? ''), 0, 200000));
+            update_option('aicpp_main_char_model', sanitize_text_field(wp_unslash($_POST['model'] ?? 'gpt-4')));
+            update_option('aicpp_main_char_temperature', max(0.0, min(2.0, floatval(wp_unslash($_POST['temperature'] ?? 0.7)))));
+            update_option('aicpp_main_char_max_tokens', max(1, min(128000, intval(wp_unslash($_POST['max_tokens'] ?? 2000)))));
             echo '<div class="notice notice-success"><p>✅ Main Character saved successfully!</p></div>';
         }
 
@@ -607,6 +872,16 @@ class AI_Chat_Persona_Pro_Ultimate {
                                 <optgroup label="Groq">
                                     <option value="llama-3.1-405b-reasoning" <?php selected($model, 'llama-3.1-405b-reasoning'); ?>>Llama 3.1 405B</option>
                                     <option value="llama-3.1-70b-versatile" <?php selected($model, 'llama-3.1-70b-versatile'); ?>>Llama 3.1 70B</option>
+                                </optgroup>
+                                <optgroup label="OpenRouter (free)">
+                                    <?php
+                                    $cached2 = get_option('aicpp_or_free_models_cache', '');
+                                    $free2 = $cached2 ? json_decode($cached2, true) : null;
+                                    if (!is_array($free2) || empty($free2)) $free2 = $this->aicpp_or_default_free_models();
+                                    foreach ($free2 as $val => $label) {
+                                        echo '<option value="' . esc_attr($val) . '"' . selected($model, $val, false) . '>' . esc_html($label) . '</option>';
+                                    }
+                                    ?>
                                 </optgroup>
                             </select>
                         </td></tr>
@@ -773,10 +1048,20 @@ class AI_Chat_Persona_Pro_Ultimate {
                                         <option value="llama-3.1-8b-instant">Llama 3.1 8B</option>
                                         <option value="gemma2-9b-it">Gemma 2 9B</option>
                                     </optgroup>
-                                    <optgroup label="OpenRouter">
+                                    <optgroup label="OpenRouter (paid)">
                                         <option value="openrouter/auto">Auto (Best)</option>
                                         <option value="openrouter/anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet (OR)</option>
                                         <option value="openrouter/openai/gpt-4o">GPT-4o (OR)</option>
+                                    </optgroup>
+                                    <optgroup label="OpenRouter (free)" id="or-free-optgroup">
+                                        <?php
+                                        $cached = get_option('aicpp_or_free_models_cache', '');
+                                        $free = $cached ? json_decode($cached, true) : null;
+                                        if (!is_array($free) || empty($free)) $free = $this->aicpp_or_default_free_models();
+                                        foreach ($free as $val => $label) {
+                                            echo '<option value="' . esc_attr($val) . '">' . esc_html($label) . '</option>';
+                                        }
+                                        ?>
                                     </optgroup>
                                 </select>
                             </td></tr>
@@ -847,7 +1132,6 @@ class AI_Chat_Persona_Pro_Ultimate {
                 var pid = document.getElementById('pid').value;
                 document.getElementById('visibility-hint-public').style.display = vis === 'public' ? '' : 'none';
                 document.getElementById('visibility-hint-private').style.display = vis === 'private' ? '' : 'none';
-                // Only show assign section for private + saved persona
                 if (vis === 'private' && pid) {
                     document.getElementById('assign-section').style.display = 'block';
                 } else if (vis === 'private' && !pid) {
@@ -1108,7 +1392,7 @@ class AI_Chat_Persona_Pro_Ultimate {
     public function page_binding() {
         if (!current_user_can('manage_options')) wp_die('Access denied');
         if (isset($_POST['save_binding']) && check_admin_referer('aicpp_binding')) {
-            update_option('aicpp_active_character_code', wp_kses_post($_POST['code']));
+            update_option('aicpp_active_character_code', mb_substr((string) wp_unslash($_POST['code'] ?? ''), 0, 500000));
             update_option('aicpp_character_binding_active', isset($_POST['active']) ? '1' : '0');
             echo '<div class="notice notice-success"><p>✅ Saved!</p></div>';
         }
@@ -1138,7 +1422,7 @@ class AI_Chat_Persona_Pro_Ultimate {
     public function page_ei() {
         if (!current_user_can('manage_options')) wp_die('Access denied');
         if (isset($_POST['save_ei']) && check_admin_referer('aicpp_ei')) {
-            update_option('aicpp_global_ei_code', wp_kses_post($_POST['code']));
+            update_option('aicpp_global_ei_code', mb_substr((string) wp_unslash($_POST['code'] ?? ''), 0, 500000));
             update_option('aicpp_global_ei_enabled', isset($_POST['enabled']) ? '1' : '0');
             echo '<div class="notice notice-success"><p>✅ Saved!</p></div>';
         }
@@ -1167,7 +1451,7 @@ class AI_Chat_Persona_Pro_Ultimate {
     public function page_rewards() {
         if (!current_user_can('manage_options')) wp_die('Access denied');
         if (isset($_POST['save_rewards']) && check_admin_referer('aicpp_rewards')) {
-            update_option('aicpp_global_rewards_code', wp_kses_post($_POST['code']));
+            update_option('aicpp_global_rewards_code', mb_substr((string) wp_unslash($_POST['code'] ?? ''), 0, 500000));
             update_option('aicpp_global_rewards_enabled', isset($_POST['enabled']) ? '1' : '0');
             echo '<div class="notice notice-success"><p>✅ Saved!</p></div>';
         }
@@ -1192,14 +1476,14 @@ class AI_Chat_Persona_Pro_Ultimate {
         <?php
     }
 
-    // ===================== HIDDEN INJECTION =====================
+    // ===================== HIDDEN INJECTION (BUG #1 FIXED) =====================
     public function page_injection() {
         if (!current_user_can('manage_options')) wp_die('Access denied');
         if (isset($_POST['save_inj']) && check_admin_referer('aicpp_inj')) {
             update_option('aicpp_injection_enabled', isset($_POST['enabled']) ? '1' : '0');
             for ($i = 1; $i <= 5; $i++) {
                 update_option("aicpp_slot{$i}_enabled", isset($_POST["s{$i}"]) ? '1' : '0');
-                update_option("aicpp_hidden_message_{$i}", sanitize_textarea_field($_POST["msg{$i}"]));
+                update_option("aicpp_hidden_message_{$i}", mb_substr((string) wp_unslash($_POST["msg{$i}"] ?? ''), 0, 200000));
             }
             echo '<div class="notice notice-success"><p>✅ All 5 slots saved!</p></div>';
         }
@@ -1209,16 +1493,18 @@ class AI_Chat_Persona_Pro_Ultimate {
             $slots[$i]    = get_option("aicpp_slot{$i}_enabled", '1') === '1';
             $messages[$i] = get_option("aicpp_hidden_message_{$i}", '');
         }
+
+        // FIX: Added missing $slot_config definition and proper PHP/HTML transition
         $slot_config = [
-            1 => ['color'=>'#228be6','name'=>'THE EXPLORER','desc'=>'Q1, Q6, Q11... — Maze Building','emoji'=>'🔵'],
-            2 => ['color'=>'#40c057','name'=>'THE CONNECTOR','desc'=>'Q2, Q7, Q12... — Bridge Finding','emoji'=>'🟢'],
-            3 => ['color'=>'#fab005','name'=>'THE PREDICTOR','desc'=>'Q3, Q8, Q13... — Chain Activation','emoji'=>'🟡'],
-            4 => ['color'=>'#fd7e14','name'=>'THE CORRECTOR','desc'=>'Q4, Q9, Q14... — Correction & Learning','emoji'=>'🟠'],
-            5 => ['color'=>'#e64980','name'=>'THE META-ANALYST','desc'=>'Q5, Q10, Q15... — Deep Patterns','emoji'=>'🔴'],
+            1 => ['name' => 'Pattern Recognition', 'emoji' => '🔍', 'color' => '#228be6', 'desc' => 'Analyzes customer behavior patterns and adapts responses accordingly.'],
+            2 => ['name' => 'Emotional Mapping',   'emoji' => '💚', 'color' => '#40c057', 'desc' => 'Maps emotional state and adjusts tone and empathy levels.'],
+            3 => ['name' => 'Predictive Engine',    'emoji' => '⚡', 'color' => '#fab005', 'desc' => 'Anticipates customer needs before they express them.'],
+            4 => ['name' => 'Conversion Catalyst',  'emoji' => '🔥', 'color' => '#fd7e14', 'desc' => 'Guides conversations toward desired outcomes naturally.'],
+            5 => ['name' => 'Loyalty Architect',    'emoji' => '💎', 'color' => '#e64980', 'desc' => 'Builds long-term customer loyalty through personalized engagement.'],
         ];
         ?>
         <div class="wrap aicpp-wrap">
-            <h1>💉 Hidden Injection — 5-Slot Cognitive System</h1>
+            <h1>💉 5-Slot Hidden Injection — Living Prediction Network</h1>
 
             <div class="aicpp-info">
                 <strong>🧠 Living Prediction Network Architecture:</strong>
@@ -1269,13 +1555,17 @@ class AI_Chat_Persona_Pro_Ultimate {
     public function page_settings() {
         if (!current_user_can('manage_options')) wp_die('Access denied');
         if (isset($_POST['save_set']) && check_admin_referer('aicpp_set')) {
-            update_option('aicpp_api_provider', sanitize_text_field($_POST['provider']));
-            update_option('aicpp_max_message_length', max(100, min(100000, intval($_POST['max_message_length'] ?? 10000))));
-            update_option('aicpp_require_login', isset($_POST['require_login']) ? '1' : '0');
-            update_option('aicpp_login_message', sanitize_textarea_field($_POST['login_message'] ?? ''));
+            // FIX #2: provider whitelist + wp_unslash on all $_POST reads
+            $allowed_providers = ['openai','anthropic','google','deepseek','openrouter','mistral','groq'];
+            $incoming_provider = sanitize_text_field(wp_unslash($_POST['provider'] ?? 'openai'));
+            if (!in_array($incoming_provider, $allowed_providers, true)) $incoming_provider = 'openai';
+            update_option('aicpp_api_provider', $incoming_provider);
+            update_option('aicpp_max_message_length', max(100, min(100000, intval(wp_unslash($_POST['max_message_length'] ?? 10000)))));
+            update_option('aicpp_require_login', !empty($_POST['require_login']) ? '1' : '0');
+            update_option('aicpp_login_message', sanitize_textarea_field(wp_unslash($_POST['login_message'] ?? '')));
             $provider_keys = ['openai', 'anthropic', 'google', 'deepseek', 'openrouter', 'mistral', 'groq'];
             foreach ($provider_keys as $pk) {
-                $raw = sanitize_text_field($_POST["{$pk}_key"] ?? '');
+                $raw = sanitize_text_field(wp_unslash($_POST["{$pk}_key"] ?? ''));
                 if (!empty($raw) && substr($raw, 0, 4) !== '****') {
                     update_option("aicpp_{$pk}_api_key", $this->encrypt_api_key($raw));
                 } elseif (empty($raw)) {
@@ -1353,6 +1643,48 @@ class AI_Chat_Persona_Pro_Ultimate {
                 </div>
                 <p><input type="submit" name="save_set" class="button button-primary button-large" value="💾 Save Settings"></p>
             </form>
+            <div class="aicpp-card">
+                <h2><span class="aicpp-section-icon">🆓</span> OpenRouter Free Models Preset</h2>
+                <p class="description">One-click load all working free OpenRouter models into your persona dropdown. Saves to <code>aicpp_or_free_models_cache</code> and overrides the OpenRouter optgroup in the persona editor.</p>
+                <p>
+                    <button type="button" class="button button-primary" onclick="aicppOrLoadFree()">Use free models (load cached)</button>
+                    <button type="button" class="button" onclick="aicppOrRefresh()">Refresh from OpenRouter API</button>
+                    <span id="aicpp-or-status" style="margin-left:10px"></span>
+                </p>
+                <div id="aicpp-or-list" style="margin-top:10px;max-height:240px;overflow:auto;background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:10px;font-size:12px;display:none"></div>
+            </div>
+            <script>
+            (function(){
+                var ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+                var nonce = <?php echo wp_json_encode(wp_create_nonce('aicpp')); ?>;
+                function render(list){
+                    var box = document.getElementById('aicpp-or-list');
+                    box.style.display='block';
+                    var keys = Object.keys(list);
+                    box.innerHTML = '<strong>'+keys.length+' free models available:</strong><br>' +
+                        keys.map(function(k){ return '<code>'+k+'</code> &mdash; '+list[k]; }).join('<br>');
+                }
+                window.aicppOrLoadFree = function(){
+                    var fd = new FormData();
+                    fd.append('action','aicpp_or_free_models');
+                    fd.append('nonce',nonce);
+                    fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                        if (d.success){ render(d.data.models); document.getElementById('aicpp-or-status').textContent='Loaded.'; }
+                        else alert(d.data.message||'Error');
+                    });
+                };
+                window.aicppOrRefresh = function(){
+                    document.getElementById('aicpp-or-status').textContent='Refreshing…';
+                    var fd = new FormData();
+                    fd.append('action','aicpp_or_refresh_free');
+                    fd.append('nonce',nonce);
+                    fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                        if (d.success){ render(d.data.models); document.getElementById('aicpp-or-status').textContent='Refreshed: '+d.data.count+' models.'; }
+                        else { document.getElementById('aicpp-or-status').textContent='Failed.'; alert(d.data.message||'Error'); }
+                    });
+                };
+            })();
+            </script>
         </div>
         <script>
         document.getElementById('provider_select').addEventListener('change', function(){
@@ -1379,20 +1711,20 @@ class AI_Chat_Persona_Pro_Ultimate {
         global $wpdb;
 
         $id   = intval($_POST['persona_id'] ?? 0);
-        $visibility = sanitize_text_field($_POST['visibility'] ?? 'private');
+        $visibility = sanitize_text_field(wp_unslash($_POST['visibility'] ?? 'private'));
         if (!in_array($visibility, ['public', 'private'], true)) $visibility = 'private';
 
         $data = [
-            'name'                        => sanitize_text_field($_POST['name'] ?? ''),
-            'description'                 => sanitize_textarea_field($_POST['description'] ?? ''),
-            'avatar_initials'             => sanitize_text_field(mb_substr($_POST['avatar_initials'] ?? '', 0, 4)),
-            'avatar_color'                => sanitize_hex_color($_POST['avatar_color'] ?? '#667eea') ?: '#667eea',
-            'system_prompt'               => wp_kses_post($_POST['system_prompt'] ?? ''),
-            'emotional_intelligence_code' => wp_kses_post($_POST['emotional_intelligence_code'] ?? ''),
-            'rewards_code'                => wp_kses_post($_POST['rewards_code'] ?? ''),
+            'name'                        => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
+            'description'                 => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
+            'avatar_initials'             => mb_substr(sanitize_text_field(wp_unslash($_POST['avatar_initials'] ?? '')), 0, 4),
+            'avatar_color'                => sanitize_hex_color(wp_unslash($_POST['avatar_color'] ?? '#667eea')) ?: '#667eea',
+            'system_prompt'               => mb_substr((string) wp_unslash($_POST['system_prompt'] ?? ''), 0, 200000),
+            'emotional_intelligence_code' => mb_substr((string) wp_unslash($_POST['emotional_intelligence_code'] ?? ''), 0, 200000),
+            'rewards_code'                => mb_substr((string) wp_unslash($_POST['rewards_code'] ?? ''), 0, 200000),
             'use_global_ei'               => ($_POST['use_global_ei'] ?? '0') === '1' ? 1 : 0,
             'use_global_rewards'          => ($_POST['use_global_rewards'] ?? '0') === '1' ? 1 : 0,
-            'model'                       => sanitize_text_field($_POST['model'] ?? 'gpt-4'),
+            'model'                       => sanitize_text_field(wp_unslash($_POST['model'] ?? 'gpt-4')),
             'temperature'                 => max(0.0, min(2.0, floatval($_POST['temperature'] ?? 0.7))),
             'max_tokens'                  => max(1, min(128000, intval($_POST['max_tokens'] ?? 2000))),
             'visibility'                  => $visibility,
@@ -1408,14 +1740,33 @@ class AI_Chat_Persona_Pro_Ultimate {
             $data['avatar_initials'] = mb_strtoupper(mb_substr($words[0], 0, 1) . (isset($words[1]) ? mb_substr($words[1], 0, 1) : mb_substr($words[0], 1, 1)));
         }
 
-        $format = ['%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%f', '%d', '%s', '%d'];
+        // Explicit, key-ordered format map — safe under any PHP key-ordering behavior.
+        $format_map = [
+            'name'                        => '%s',
+            'description'                 => '%s',
+            'avatar_initials'             => '%s',
+            'avatar_color'                => '%s',
+            'system_prompt'               => '%s',
+            'emotional_intelligence_code' => '%s',
+            'rewards_code'                => '%s',
+            'use_global_ei'               => '%d',
+            'use_global_rewards'          => '%d',
+            'model'                       => '%s',
+            'temperature'                 => '%f',
+            'max_tokens'                  => '%d',
+            'visibility'                  => '%s',
+            'created_by'                  => '%d',
+        ];
 
         if ($id > 0) {
             unset($data['created_by']);
-            array_pop($format);
+            $format = [];
+            foreach (array_keys($data) as $k) { $format[] = $format_map[$k]; }
             $result = $wpdb->update($this->table_personas, $data, ['id' => $id], $format, ['%d']);
             $persona_id = $id;
         } else {
+            $format = [];
+            foreach (array_keys($data) as $k) { $format[] = $format_map[$k]; }
             $result = $wpdb->insert($this->table_personas, $data, $format);
             $persona_id = $wpdb->insert_id;
         }
@@ -1442,7 +1793,7 @@ class AI_Chat_Persona_Pro_Ultimate {
         check_ajax_referer('aicpp', 'nonce');
         if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
 
-        $query = sanitize_text_field($_POST['query'] ?? '');
+        $query = sanitize_text_field(wp_unslash($_POST['query'] ?? ''));
         if (strlen($query) < 2) wp_send_json_error(['message' => 'Query too short']);
 
         $users = get_users([
@@ -1547,8 +1898,17 @@ class AI_Chat_Persona_Pro_Ultimate {
         global $wpdb;
 
         $persona_id = intval($_POST['persona_id'] ?? 0);
-        $user_ids   = array_map('intval', json_decode(stripslashes($_POST['user_ids'] ?? '[]'), true) ?: []);
-        $admin_id   = get_current_user_id();
+        if ($persona_id <= 0) wp_send_json_error(['message' => 'Invalid persona id']);
+
+        $persona_exists = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->table_personas} WHERE id = %d", $persona_id
+        ));
+        if (!$persona_exists) wp_send_json_error(['message' => 'Persona not found']);
+
+        $raw_ids = isset($_POST['user_ids']) ? wp_unslash($_POST['user_ids']) : '[]';
+        $decoded = json_decode($raw_ids, true);
+        $user_ids = is_array($decoded) ? array_map('intval', $decoded) : [];
+        $admin_id = get_current_user_id();
 
         $count = 0;
         foreach ($user_ids as $uid) {
@@ -1619,24 +1979,47 @@ class AI_Chat_Persona_Pro_Ultimate {
         }
 
         $conversations = $wpdb->get_results($wpdb->prepare(
-            "SELECT c.id, c.title, c.token_count, c.persona_id, c.is_main_chat, c.created_at, c.updated_at,
+            "SELECT c.id, c.title, c.token_count, c.persona_id, c.is_main_chat, c.pinned, c.created_at, c.updated_at,
                     p.name as persona_name, p.avatar_initials, p.avatar_color
              FROM {$this->table_conversations} c
              LEFT JOIN {$this->table_personas} p ON c.persona_id = p.id
              WHERE c.user_id = %d
-             ORDER BY c.updated_at DESC LIMIT 50",
+             ORDER BY c.pinned DESC, c.updated_at DESC LIMIT 50",
             $user_id
         ));
 
-        foreach ($conversations as &$c) {
-            if (empty($c->title)) {
-                $first_msg = $wpdb->get_var($wpdb->prepare(
-                    "SELECT content FROM {$this->table_messages} WHERE conversation_id = %d AND role = 'user' ORDER BY id ASC LIMIT 1",
-                    $c->id
-                ));
-                $c->title = $first_msg ? wp_trim_words($first_msg, 8, '...') : 'Conversation #' . $c->id;
-                $wpdb->update($this->table_conversations, ['title' => $c->title], ['id' => $c->id], ['%s'], ['%d']);
+        // Collect all conversations missing a title in one pass to avoid N+1 queries.
+        $needs_title_ids = [];
+        foreach ($conversations as $c) {
+            if (empty($c->title)) $needs_title_ids[] = (int) $c->id;
+        }
+
+        if (!empty($needs_title_ids)) {
+            $placeholders = implode(',', array_fill(0, count($needs_title_ids), '%d'));
+            $first_msgs = $wpdb->get_results($wpdb->prepare(
+                "SELECT m.conversation_id, m.content
+                 FROM {$this->table_messages} m
+                 INNER JOIN (
+                     SELECT conversation_id, MIN(id) AS min_id
+                     FROM {$this->table_messages}
+                     WHERE role = 'user' AND conversation_id IN ($placeholders)
+                     GROUP BY conversation_id
+                 ) f ON f.conversation_id = m.conversation_id AND f.min_id = m.id",
+                ...$needs_title_ids
+            ));
+
+            $title_map = [];
+            foreach ($first_msgs as $row) {
+                $title_map[(int)$row->conversation_id] = wp_trim_words($row->content, 8, '...');
             }
+
+            foreach ($conversations as &$c) {
+                if (empty($c->title)) {
+                    $c->title = $title_map[(int)$c->id] ?? ('Conversation #' . $c->id);
+                    $wpdb->update($this->table_conversations, ['title' => $c->title], ['id' => $c->id], ['%s'], ['%d']);
+                }
+            }
+            unset($c);
         }
 
         wp_send_json_success(['conversations' => $conversations]);
@@ -1668,6 +2051,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             'messages'    => $messages ?: [],
             'session_id'  => $conv->session_id,
             'persona_id'  => $conv->persona_id,
+            'pinned'      => (int)$conv->pinned,
             'is_main_chat' => (int)$conv->is_main_chat,
         ]);
     }
@@ -1689,8 +2073,16 @@ class AI_Chat_Persona_Pro_Ultimate {
     // ===================== FILE UPLOAD =====================
     public function ajax_upload_file() {
         check_ajax_referer('aicpp_chat', 'nonce');
+
+        // Honor the require_login setting for uploads
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Please sign in to upload files.']);
+        }
+
         if (!$this->check_rate_limit('upload', 20, 300)) wp_send_json_error(['message' => 'Rate limit exceeded.']);
-        if (empty($_FILES['file'])) wp_send_json_error(['message' => 'No file uploaded']);
+        if (empty($_FILES['file']) || !is_array($_FILES['file']) || !empty($_FILES['file']['error'])) {
+            wp_send_json_error(['message' => 'No file uploaded']);
+        }
 
         $file = $_FILES['file'];
         if ($file['size'] > 10 * 1024 * 1024) wp_send_json_error(['message' => 'File too large. Max 10MB.']);
@@ -1726,17 +2118,38 @@ class AI_Chat_Persona_Pro_Ultimate {
     // ===================== AUDIO TRANSCRIPTION =====================
     public function ajax_transcribe_audio() {
         check_ajax_referer('aicpp_chat', 'nonce');
+
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Please sign in to use voice transcription.']);
+        }
+
         if (!$this->check_rate_limit('transcribe', 10, 300)) wp_send_json_error(['message' => 'Rate limit exceeded.']);
-        if (empty($_FILES['audio'])) wp_send_json_error(['message' => 'No audio received']);
+        if (empty($_FILES['audio']) || !empty($_FILES['audio']['error'])) wp_send_json_error(['message' => 'No audio received']);
+
+        // FIX #4: Cap reduced to 10MB to avoid OOM on shared hosting; Whisper handles 10MB fine.
+        if (!empty($_FILES['audio']['size']) && $_FILES['audio']['size'] > 10 * 1024 * 1024) {
+            wp_send_json_error(['message' => 'Audio too large. Max 10MB.']);
+        }
+
+        // FIX #4: Validate audio MIME/extension before forwarding to OpenAI.
+        $check = wp_check_filetype_and_ext($_FILES['audio']['tmp_name'], $_FILES['audio']['name']);
+        $ok_audio = ['webm','mp3','m4a','wav','ogg','mp4','mpga','mpeg'];
+        if (empty($check['ext']) || !in_array(strtolower($check['ext']), $ok_audio, true)) {
+            wp_send_json_error(['message' => 'Audio format not allowed.']);
+        }
 
         $key = $this->get_api_key('openai');
         if (!$key) wp_send_json_error(['message' => 'OpenAI API key required for transcription.']);
 
         $boundary = wp_generate_password(24, false);
-        $audio_name = sanitize_file_name($_FILES['audio']['name'] ?: 'recording.webm');
+        // Force a safe, fixed filename — never trust client-supplied filename inside multipart headers.
+        $audio_name = 'recording.webm';
+        // FIX #4: Guard against unreadable temp file before composing multipart body.
+        $audio_bytes = @file_get_contents($_FILES['audio']['tmp_name']);
+        if ($audio_bytes === false) wp_send_json_error(['message' => 'Could not read audio file.']);
         $body  = "--{$boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nwhisper-1\r\n";
         $body .= "--{$boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{$audio_name}\"\r\nContent-Type: audio/webm\r\n\r\n";
-        $body .= file_get_contents($_FILES['audio']['tmp_name']) . "\r\n--{$boundary}--\r\n";
+        $body .= $audio_bytes . "\r\n--{$boundary}--\r\n";
 
         $r = wp_remote_post('https://api.openai.com/v1/audio/transcriptions', [
             'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'multipart/form-data; boundary=' . $boundary],
@@ -1751,14 +2164,20 @@ class AI_Chat_Persona_Pro_Ultimate {
     // ===================== REGISTRATION =====================
     public function ajax_register_user() {
         check_ajax_referer('aicpp_register', 'nonce');
+        global $wpdb;
         if (is_user_logged_in()) wp_send_json_error(['message' => 'Already logged in.']);
         if (!get_option('users_can_register')) wp_send_json_error(['message' => 'Registration disabled.']);
         if (!$this->check_rate_limit('register', 3, 900)) wp_send_json_error(['message' => 'Too many attempts. Try again later.']);
 
-        $username     = sanitize_user($_POST['username'] ?? '');
-        $email        = sanitize_email($_POST['email'] ?? '');
-        $password     = $_POST['password'] ?? '';
-        $display_name = sanitize_text_field($_POST['display_name'] ?? '');
+        $username     = sanitize_user(wp_unslash($_POST['username'] ?? ''));
+        $email        = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+        $password     = wp_unslash($_POST['password'] ?? '');
+        $display_name = sanitize_text_field(wp_unslash($_POST['display_name'] ?? ''));
+        $referral_code = sanitize_text_field(wp_unslash($_POST['referral_code'] ?? ''));
+        // FIX #7: Validate referral code format (VRS-{ID}-{6 alphanum}); drop if malformed.
+        if ($referral_code && !preg_match('/^VRS-\d+-[A-Z0-9]{6}$/i', $referral_code)) {
+            $referral_code = '';
+        }
 
         if (empty($username) || empty($email) || empty($password)) wp_send_json_error(['message' => 'All fields required.']);
         if (strlen($password) < 8) wp_send_json_error(['message' => 'Password must be at least 8 characters.']);
@@ -1769,12 +2188,59 @@ class AI_Chat_Persona_Pro_Ultimate {
         $user_id = wp_create_user($username, $password, $email);
         if (is_wp_error($user_id)) wp_send_json_error(['message' => $user_id->get_error_message()]);
 
-        if ($display_name) wp_update_user(['ID' => $user_id, 'display_name' => wp_strip_all_tags($display_name)]);
+        if ($display_name) {
+            wp_update_user(['ID' => $user_id, 'display_name' => wp_strip_all_tags($display_name)]);
+        }
+
+        $my_ref_code = strtoupper('VRS-' . $user_id . '-' . wp_generate_password(6, false, false));
+        update_user_meta($user_id, 'aicpp_referral_code', $my_ref_code);
+        update_user_meta($user_id, 'aicpp_reward_points', 0);
+
+        if (!empty($referral_code)) {
+            $referrers = get_users([
+                'meta_key'   => 'aicpp_referral_code',
+                'meta_value' => $referral_code,
+                'fields'     => 'ids',
+                'number'     => 1,
+            ]);
+
+            if (!empty($referrers)) {
+                $referrer_id = (int) $referrers[0];
+
+                // Make sure the referrer still exists as a real user.
+                $referrer_user = get_userdata($referrer_id);
+
+                // Guard against: self-referral, deleted referrer, and duplicate award (UNIQUE idx_referred_user already enforces this at DB level).
+                if ($referrer_user && $referrer_id !== (int) $user_id) {
+                    $inserted = $wpdb->insert($this->table_referrals, [
+                        'referrer_user_id' => $referrer_id,
+                        'referred_user_id' => $user_id,
+                        'referral_code'    => $referral_code,
+                        'points_awarded'   => 100,
+                    ], ['%d', '%d', '%s', '%d']);
+
+                    // Only credit points if the row was actually inserted (UNIQUE key prevents double credit on race).
+                    if ($inserted) {
+                        $current_points = (int) get_user_meta($referrer_id, 'aicpp_reward_points', true);
+                        update_user_meta($referrer_id, 'aicpp_reward_points', $current_points + 100);
+                    }
+                }
+            }
+        }
 
         wp_set_current_user($user_id);
         wp_set_auth_cookie($user_id, true);
 
-        wp_send_json_success(['message' => 'Registration successful!', 'user_id' => $user_id, 'display_name' => $display_name ?: $username]);
+        wp_send_json_success([
+            'message'       => 'Registration successful!',
+            'user_id'       => $user_id,
+            'display_name'  => $display_name ?: $username,
+            'email'         => $email,
+            'bio'           => '',
+            'avatar'        => '',
+            'referral_code' => $my_ref_code,
+            'points'        => 0,
+        ]);
     }
 
     // ===================== LOGIN =====================
@@ -1783,8 +2249,9 @@ class AI_Chat_Persona_Pro_Ultimate {
         if (is_user_logged_in()) wp_send_json_error(['message' => 'Already logged in.']);
         if (!$this->check_rate_limit('login', 5, 300)) wp_send_json_error(['message' => 'Too many attempts. Try again later.']);
 
-        $login    = sanitize_text_field($_POST['login'] ?? '');
-        $password = $_POST['password'] ?? '';
+        // FIX #3: wp_unslash on login + password so quotes/backslashes don't silently mismatch the stored hash.
+        $login    = sanitize_text_field(wp_unslash($_POST['login'] ?? ''));
+        $password = wp_unslash($_POST['password'] ?? '');
         if (empty($login) || empty($password)) wp_send_json_error(['message' => 'Username/email and password required.']);
 
         $creds = ['user_login' => $login, 'user_password' => $password, 'remember' => true];
@@ -1802,9 +2269,14 @@ class AI_Chat_Persona_Pro_Ultimate {
         wp_set_current_user($user->ID);
 
         wp_send_json_success([
-            'message'      => 'Welcome back, ' . ($user->display_name ?: $user->user_login) . '!',
-            'user_id'      => $user->ID,
-            'display_name' => $user->display_name ?: $user->user_login,
+            'message'       => 'Welcome back, ' . ($user->display_name ?: $user->user_login) . '!',
+            'user_id'       => $user->ID,
+            'display_name'  => $user->display_name ?: $user->user_login,
+            'email'         => $user->user_email,
+            'bio'           => $user->description ?: '',
+            'avatar'        => get_user_meta($user->ID, 'aicpp_avatar', true) ?: '',
+            'referral_code' => get_user_meta($user->ID, 'aicpp_referral_code', true) ?: '',
+            'points'        => (int) get_user_meta($user->ID, 'aicpp_reward_points', true),
         ]);
     }
 
@@ -1815,11 +2287,15 @@ class AI_Chat_Persona_Pro_Ultimate {
 
         if (!$this->check_rate_limit('chat', 30, 300)) wp_send_json_error(['message' => 'Rate limit exceeded.']);
 
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => get_option('aicpp_login_message', 'Please sign in.')]);
+        }
+
         $main_enabled = get_option('aicpp_main_char_enabled', '0') === '1';
         if (!$main_enabled) wp_send_json_error(['message' => 'Main character is not enabled.']);
 
-        $message = sanitize_textarea_field($_POST['message'] ?? '');
-        $session = sanitize_text_field($_POST['session_id'] ?? '');
+        $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+        $session = sanitize_text_field(wp_unslash($_POST['session_id'] ?? ''));
         $user_id = get_current_user_id();
 
         $max_len = intval(get_option('aicpp_max_message_length', 10000));
@@ -1842,17 +2318,27 @@ class AI_Chat_Persona_Pro_Ultimate {
         ];
 
         $conv = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$this->table_conversations} WHERE session_id = %s AND is_main_chat = 1 ORDER BY id DESC LIMIT 1", $session
+            "SELECT * FROM {$this->table_conversations} WHERE session_id = %s AND is_main_chat = 1 AND (persona_id IS NULL OR persona_id = 0) ORDER BY id DESC LIMIT 1", $session
         ));
 
         if (!$conv) {
             $wpdb->insert($this->table_conversations, [
-                'user_id' => $user_id, 'persona_id' => null, 'session_id' => $session,
+                'user_id' => $user_id, 'session_id' => $session,
                 'title' => wp_trim_words($message, 8, '...'), 'token_count' => 0, 'is_main_chat' => 1, 'updated_at' => current_time('mysql'),
-            ], ['%d', '%d', '%s', '%s', '%d', '%d', '%s']);
+            ], ['%d', '%s', '%s', '%d', '%d', '%s']);
             $conv_id = $wpdb->insert_id;
             $token_count = 0;
         } else {
+            // FIX #1: Verify ownership when resuming an existing conversation.
+            if ($user_id) {
+                if ((int) $conv->user_id !== $user_id) {
+                    wp_send_json_error(['message' => 'Conversation ownership mismatch.']);
+                }
+            } else {
+                if ((int) $conv->user_id !== 0 || !hash_equals((string) $conv->session_id, $session)) {
+                    wp_send_json_error(['message' => 'Conversation ownership mismatch.']);
+                }
+            }
             $conv_id = $conv->id;
             $token_count = (int)$conv->token_count;
         }
@@ -1860,9 +2346,9 @@ class AI_Chat_Persona_Pro_Ultimate {
         // Handle attachments
         $attachment_context = '';
         if (!empty($_POST['has_attachment']) && $_POST['has_attachment'] === '1') {
-            $att_type = sanitize_text_field($_POST['attachment_type'] ?? '');
-            $att_url  = esc_url_raw($_POST['attachment_url'] ?? '');
-            $att_data = $_POST['attachment_data'] ?? '';
+            $att_type = sanitize_text_field(wp_unslash($_POST['attachment_type'] ?? ''));
+            $att_url  = esc_url_raw(wp_unslash($_POST['attachment_url'] ?? ''));
+            $att_data = wp_unslash($_POST['attachment_data'] ?? '');
             if (strpos($att_type, 'image/') === 0 && $att_url) $attachment_context = "\n\n[User shared an image: {$att_url}]";
             elseif ($att_type === 'text/plain' && $att_data) $attachment_context = "\n\n[User shared text file:\n" . sanitize_textarea_field(mb_substr($att_data, 0, 5000)) . "\n]";
             elseif ($att_type === 'application/pdf' && $att_url) $attachment_context = "\n\n[User shared PDF: {$att_url}]";
@@ -1884,7 +2370,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             $api_history[] = ['role' => $rm['role'], 'content' => $rm['raw_content'] ?: $rm['content']];
         }
 
-        $api_msgs = $this->build_messages($main_persona, $api_history, $session);
+        $api_msgs = $this->build_messages($main_persona, $api_history, $session, $conv_id);
         $response = $this->call_api($api_msgs, $main_persona);
 
         if (isset($response['error'])) wp_send_json_error(['message' => $response['error']]);
@@ -1892,9 +2378,15 @@ class AI_Chat_Persona_Pro_Ultimate {
         $reply  = $response['choices'][0]['message']['content'] ?? '';
         $tokens = $response['usage']['total_tokens'] ?? 0;
 
+        // Upgrade F: extract & strip <remember> tags before storing/displaying.
+        $reply = $this->extract_and_save_memories($reply, get_current_user_id() ?: 0, (int) ($main_persona->id ?? 0));
+
         $wpdb->insert($this->table_messages, [
             'conversation_id' => $conv_id, 'role' => 'assistant', 'content' => $reply, 'raw_content' => $reply,
         ], ['%d', '%s', '%s', '%s']);
+
+        // FEATURE 4: extract any <artifact>...</artifact> blocks and persist them
+        $this->extract_and_save_artifacts($reply, $conv_id, get_current_user_id() ?: 0);
 
         $wpdb->update($this->table_conversations,
             ['token_count' => $token_count + $tokens, 'updated_at' => current_time('mysql')],
@@ -1904,16 +2396,20 @@ class AI_Chat_Persona_Pro_Ultimate {
         wp_send_json_success(['message' => $reply, 'tokens' => $tokens, 'conversation_id' => $conv_id]);
     }
 
-    // ===================== PERSONA CHAT HANDLER =====================
+    // ===================== PERSONA CHAT HANDLER (BUG #2 FIXED) =====================
     public function handle_chat() {
         check_ajax_referer('aicpp_chat', 'nonce');
         global $wpdb;
 
         if (!$this->check_rate_limit('chat', 30, 300)) wp_send_json_error(['message' => 'Rate limit exceeded.']);
 
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => get_option('aicpp_login_message', 'Please sign in.')]);
+        }
+
         $persona_id = intval($_POST['persona_id'] ?? 0);
-        $message    = sanitize_textarea_field($_POST['message'] ?? '');
-        $session    = sanitize_text_field($_POST['session_id'] ?? '');
+        $message    = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+        $session    = sanitize_text_field(wp_unslash($_POST['session_id'] ?? ''));
         $user_id    = get_current_user_id();
 
         $max_len = intval(get_option('aicpp_max_message_length', 10000));
@@ -1921,15 +2417,21 @@ class AI_Chat_Persona_Pro_Ultimate {
         if (empty($message)) wp_send_json_error(['message' => 'Message cannot be empty.']);
         if (empty($session)) wp_send_json_error(['message' => 'Invalid session.']);
 
-        if ($user_id && !$this->user_can_access_persona($user_id, $persona_id)) {
+        // Personas are always tied to user accounts (public personas still require a logged-in user).
+        if (!$user_id) {
+            wp_send_json_error(['message' => get_option('aicpp_login_message', 'Please sign in to chat with a persona.')]);
+        }
+        if (!$this->user_can_access_persona($user_id, $persona_id)) {
             wp_send_json_error(['message' => 'You do not have access to this persona.']);
         }
 
         $persona = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->table_personas} WHERE id = %d", $persona_id));
         if (!$persona) wp_send_json_error(['message' => 'Persona not found']);
 
+        // FIX: Added persona_id filter to prevent cross-persona session collision
         $conv = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$this->table_conversations} WHERE session_id = %s AND is_main_chat = 0 ORDER BY id DESC LIMIT 1", $session
+            "SELECT * FROM {$this->table_conversations} WHERE session_id = %s AND persona_id = %d AND is_main_chat = 0 ORDER BY id DESC LIMIT 1",
+            $session, $persona_id
         ));
 
         if (!$conv) {
@@ -1940,15 +2442,19 @@ class AI_Chat_Persona_Pro_Ultimate {
             $conv_id = $wpdb->insert_id;
             $token_count = 0;
         } else {
+            // Persona chat always requires login, so the conversation must belong to this user.
+            if ((int) $conv->user_id !== $user_id) {
+                wp_send_json_error(['message' => 'Conversation ownership mismatch.']);
+            }
             $conv_id = $conv->id;
             $token_count = (int)$conv->token_count;
         }
 
         $attachment_context = '';
         if (!empty($_POST['has_attachment']) && $_POST['has_attachment'] === '1') {
-            $att_type = sanitize_text_field($_POST['attachment_type'] ?? '');
-            $att_url  = esc_url_raw($_POST['attachment_url'] ?? '');
-            $att_data = $_POST['attachment_data'] ?? '';
+            $att_type = sanitize_text_field(wp_unslash($_POST['attachment_type'] ?? ''));
+            $att_url  = esc_url_raw(wp_unslash($_POST['attachment_url'] ?? ''));
+            $att_data = wp_unslash($_POST['attachment_data'] ?? '');
             if (strpos($att_type, 'image/') === 0 && $att_url) $attachment_context = "\n\n[User shared an image: {$att_url}]";
             elseif ($att_type === 'text/plain' && $att_data) $attachment_context = "\n\n[User shared text file:\n" . sanitize_textarea_field(mb_substr($att_data, 0, 5000)) . "\n]";
             elseif ($att_type === 'application/pdf' && $att_url) $attachment_context = "\n\n[User shared PDF: {$att_url}]";
@@ -1970,7 +2476,7 @@ class AI_Chat_Persona_Pro_Ultimate {
             $api_history[] = ['role' => $rm['role'], 'content' => $rm['raw_content'] ?: $rm['content']];
         }
 
-        $api_msgs = $this->build_messages($persona, $api_history, $session);
+        $api_msgs = $this->build_messages($persona, $api_history, $session, $conv_id);
         $response = $this->call_api($api_msgs, $persona);
 
         if (isset($response['error'])) wp_send_json_error(['message' => $response['error']]);
@@ -1978,9 +2484,15 @@ class AI_Chat_Persona_Pro_Ultimate {
         $reply  = $response['choices'][0]['message']['content'] ?? '';
         $tokens = $response['usage']['total_tokens'] ?? 0;
 
+        // Upgrade F: extract & strip <remember> tags before storing/displaying.
+        $reply = $this->extract_and_save_memories($reply, get_current_user_id() ?: 0, (int) ($persona->id ?? 0));
+
         $wpdb->insert($this->table_messages, [
             'conversation_id' => $conv_id, 'role' => 'assistant', 'content' => $reply, 'raw_content' => $reply,
         ], ['%d', '%s', '%s', '%s']);
+
+        // FEATURE 4: extract any <artifact>...</artifact> blocks and persist them
+        $this->extract_and_save_artifacts($reply, $conv_id, get_current_user_id() ?: 0);
 
         $wpdb->update($this->table_conversations,
             ['token_count' => $token_count + $tokens, 'updated_at' => current_time('mysql')],
@@ -1991,7 +2503,7 @@ class AI_Chat_Persona_Pro_Ultimate {
     }
 
     // ===================== BUILD MESSAGES =====================
-    private function build_messages($persona, $msgs, $session = '') {
+    private function build_messages($persona, $msgs, $session = '', $conv_id = 0) {
         $binding = get_option('aicpp_character_binding_active', '0') === '1';
         $bcode   = get_option('aicpp_active_character_code', '');
 
@@ -2007,6 +2519,20 @@ class AI_Chat_Persona_Pro_Ultimate {
         elseif ($persona->use_global_rewards && get_option('aicpp_global_rewards_enabled', '0') === '1') $rew = get_option('aicpp_global_rewards_code', '');
         if (!empty(trim($rew))) $sys .= "\n\n## REWARDS\n" . $rew;
 
+        // FEATURE 2: Persistent Memory
+        $memory_block = $this->get_user_memory_block(get_current_user_id(), (int) ($persona->id ?? 0));
+        if (!empty($memory_block)) $sys .= "\n\n## WHAT YOU REMEMBER ABOUT THE USER\n" . $memory_block;
+
+        // FEATURE 3: Project context (custom instructions + knowledge files)
+        $project_block = $this->get_project_context_block($conv_id);
+        if (!empty($project_block)) $sys .= "\n\n## PROJECT CONTEXT\n" . $project_block;
+
+        // FEATURE 4: Tell the model to wrap code/SVG/markdown in artifact tags
+        $sys .= "\n\n## OUTPUT FORMATTING\nWhen returning a substantial code block, full HTML page, SVG, or long-form Markdown document, wrap it in an artifact block:\n<artifact type=\"html|css|js|svg|markdown|code\" title=\"Short title\">\n...content...\n</artifact>\nUse one artifact block per artifact. Outside the block, give a brief explanation only.";
+
+        // Upgrade F: let the model save durable facts about the user.
+        $sys .= "\n\n## MEMORY\nIf the user shares a durable, useful fact about themselves (a stable preference, their name, role, language, recurring goal), record it ONCE using a tag on its own line:\n<remember>short fact in third person</remember>\nDo not use it for trivia, one-off requests, or anything sensitive. The tag is stripped before the user sees your reply.";
+
         $injection = $this->get_injection_content($session);
         if (!empty($injection)) $sys .= "\n\n## ADDITIONAL INSTRUCTIONS\n" . $injection;
 
@@ -2014,7 +2540,26 @@ class AI_Chat_Persona_Pro_Ultimate {
         foreach (array_slice($msgs, -20) as $m) {
             $result[] = ['role' => $m['role'], 'content' => $m['content']];
         }
-        return $result;
+        // Upgrade B: trim history to an estimated token budget so we never blow the context window.
+        return $this->trim_to_token_budget($result, max(2000, (int) $persona->max_tokens * 3));
+    }
+
+    /**
+     * Upgrade B: crude ~4-chars-per-token estimate. Keeps the system prompt
+     * plus as many recent turns as fit within $budget tokens.
+     */
+    private function trim_to_token_budget(array $msgs, $budget = 6000) {
+        if (empty($msgs)) return $msgs;
+        $system = array_shift($msgs); // always keep system prompt
+        $used = (int) ceil(mb_strlen($system['content']) / 4);
+        $kept = [];
+        foreach (array_reverse($msgs) as $m) {
+            $cost = (int) ceil(mb_strlen($m['content']) / 4);
+            if ($used + $cost > $budget && !empty($kept)) break;
+            $used += $cost;
+            $kept[] = $m;
+        }
+        return array_merge([$system], array_reverse($kept));
     }
 
     // ===================== 5-SLOT INJECTION =====================
@@ -2028,8 +2573,8 @@ class AI_Chat_Persona_Pro_Ultimate {
         $state = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->table_injection_state} WHERE user_key = %s", $user_key));
 
         if (!$state) {
-            $wpdb->insert($this->table_injection_state, ['user_key'=>$user_key,'current_slot'=>1,'question_count'=>1,'updated_at'=>current_time('mysql')], ['%s','%d','%d','%s']);
-            $slot = 1; $question_count = 1;
+            $slot = 1;
+            $question_count = 1;
         } else {
             $slot = max(1, min(5, (int)$state->current_slot));
             $question_count = max(1, (int)$state->question_count);
@@ -2048,9 +2593,15 @@ class AI_Chat_Persona_Pro_Ultimate {
         }
 
         $next = ($slot % 5) + 1;
+        $now  = current_time('mysql');
+
+        // Single atomic write — no double-increment on first message.
         $wpdb->query($wpdb->prepare(
-            "INSERT INTO {$this->table_injection_state} (user_key,current_slot,question_count,updated_at) VALUES (%s,%d,%d,%s) ON DUPLICATE KEY UPDATE current_slot=%d,question_count=%d,updated_at=%s",
-            $user_key, $next, $question_count+1, current_time('mysql'), $next, $question_count+1, current_time('mysql')
+            "INSERT INTO {$this->table_injection_state} (user_key, current_slot, question_count, updated_at)
+             VALUES (%s, %d, %d, %s)
+             ON DUPLICATE KEY UPDATE current_slot = %d, question_count = %d, updated_at = %s",
+            $user_key, $next, $question_count + 1, $now,
+            $next, $question_count + 1, $now
         ));
 
         return $hidden;
@@ -2065,6 +2616,30 @@ class AI_Chat_Persona_Pro_Ultimate {
     }
 
     // ===================== API PROVIDERS =====================
+    /**
+     * Upgrade E (foundation): build an OpenAI-style multimodal user message.
+     * Pass an image data-URI or URL to actually let vision models SEE the image
+     * instead of just reading a text placeholder. Wire this into your front-end
+     * by sending attachment_data (data URI) on image uploads, then call this
+     * from the chat handlers for vision-capable models.
+     */
+    private function build_vision_user_content($text, $image_src) {
+        if (empty($image_src)) return $text;
+        return [
+            ['type' => 'text', 'text' => (string) $text],
+            ['type' => 'image_url', 'image_url' => ['url' => (string) $image_src]],
+        ];
+    }
+
+    private function model_supports_vision($model) {
+        $m = strtolower((string) $model);
+        return (strpos($m, 'gpt-4o') !== false
+            || strpos($m, 'gpt-4-turbo') !== false
+            || strpos($m, 'claude') !== false
+            || strpos($m, 'gemini') !== false
+            || strpos($m, '-vl') !== false);
+    }
+
     private function detect_provider($model) {
         $m = strtolower($model);
         if (strpos($m, 'openrouter/') === 0) return 'openrouter';
@@ -2082,25 +2657,61 @@ class AI_Chat_Persona_Pro_Ultimate {
         switch ($p) {
             case 'anthropic':  return $this->call_anthropic($msgs, $persona);
             case 'google':     return $this->call_google($msgs, $persona);
-            case 'deepseek':   return $this->call_deepseek($msgs, $persona);
-            case 'mistral':    return $this->call_mistral($msgs, $persona);
-            case 'groq':       return $this->call_groq($msgs, $persona);
+            case 'deepseek':   return $this->call_openai_compatible('https://api.deepseek.com/chat/completions', 'deepseek', $msgs, $persona, 'DeepSeek');
+            case 'mistral':    return $this->call_openai_compatible('https://api.mistral.ai/v1/chat/completions', 'mistral', $msgs, $persona, 'Mistral');
+            case 'groq':       return $this->call_openai_compatible('https://api.groq.com/openai/v1/chat/completions', 'groq', $msgs, $persona, 'Groq');
             case 'openrouter': return $this->call_openrouter($msgs, $persona);
-            default:           return $this->call_openai($msgs, $persona);
+            default:           return $this->call_openai('https://api.openai.com/v1/chat/completions', 'openai', $msgs, $persona, 'OpenAI');
         }
     }
 
-    private function call_openai($msgs, $persona) {
-        $key = $this->get_api_key('openai');
-        if (!$key) return ['error' => 'OpenAI API key not set.'];
-        $r = wp_remote_post('https://api.openai.com/v1/chat/completions', [
-            'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json'],
-            'body' => wp_json_encode(['model' => $persona->model, 'messages' => $msgs, 'temperature' => (float)$persona->temperature, 'max_tokens' => (int)$persona->max_tokens]),
-            'timeout' => 120,
+    /**
+     * Generic caller for any OpenAI-Chat-Completions-compatible endpoint.
+     * Includes Upgrade D: automatic retry with backoff on 429/5xx.
+     */
+    private function call_openai_compatible($url, $key_name, $msgs, $persona, $label, $extra_headers = []) {
+        $key = $this->get_api_key($key_name);
+        if (!$key) return ['error' => $label . ' API key not set.'];
+        $headers = array_merge(
+            ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json'],
+            $extra_headers
+        );
+        $payload = wp_json_encode([
+            'model'       => $persona->model,
+            'messages'    => $msgs,
+            'temperature' => (float) $persona->temperature,
+            'max_tokens'  => (int) $persona->max_tokens,
         ]);
-        if (is_wp_error($r)) return ['error' => $r->get_error_message()];
-        $b = json_decode(wp_remote_retrieve_body($r), true);
-        return isset($b['error']) ? ['error' => $b['error']['message']] : $b;
+        return $this->http_with_retry($url, $headers, $payload, $label);
+    }
+
+    /**
+     * Upgrade D: shared HTTP-POST with up to 2 retries on transient failures.
+     */
+    private function http_with_retry($url, $headers, $payload, $label, $attempts = 3) {
+        $delay = 1;
+        for ($i = 1; $i <= $attempts; $i++) {
+            $r = wp_remote_post($url, ['headers' => $headers, 'body' => $payload, 'timeout' => 120]);
+            if (is_wp_error($r)) {
+                if ($i === $attempts) return ['error' => $r->get_error_message()];
+                sleep($delay); $delay *= 2; continue;
+            }
+            $code = (int) wp_remote_retrieve_response_code($r);
+            $b = json_decode(wp_remote_retrieve_body($r), true);
+            // Retry only on rate-limit / server errors.
+            if (($code === 429 || $code >= 500) && $i < $attempts) {
+                sleep($delay); $delay *= 2; continue;
+            }
+            if (isset($b['error'])) {
+                return ['error' => is_array($b['error']) ? ($b['error']['message'] ?? ($label . ' error')) : (string) $b['error']];
+            }
+            return is_array($b) ? $b : ['error' => $label . ' returned an invalid response.'];
+        }
+        return ['error' => $label . ' failed after retries.'];
+    }
+
+    private function call_openai($url, $key_name, $msgs, $persona, $label) {
+        return $this->call_openai_compatible($url, $key_name, $msgs, $persona, $label);
     }
 
     private function call_anthropic($msgs, $persona) {
@@ -2135,8 +2746,9 @@ class AI_Chat_Persona_Pro_Ultimate {
         $bd = ['contents' => $c, 'generationConfig' => ['temperature' => (float)$persona->temperature, 'maxOutputTokens' => (int)$persona->max_tokens]];
         if (!empty(trim($si))) $bd['systemInstruction'] = ['parts' => [['text' => trim($si)]]];
         $model = sanitize_text_field($persona->model);
-        $r = wp_remote_post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$key}", [
-            'headers' => ['Content-Type' => 'application/json'], 'body' => wp_json_encode($bd), 'timeout' => 120,
+        // FIX #5: Pass Google API key via x-goog-api-key header so it never lands in access/error logs.
+        $r = wp_remote_post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent", [
+            'headers' => ['Content-Type' => 'application/json', 'x-goog-api-key' => $key], 'body' => wp_json_encode($bd), 'timeout' => 120,
         ]);
         if (is_wp_error($r)) return ['error' => $r->get_error_message()];
         $b = json_decode(wp_remote_retrieve_body($r), true);
@@ -2145,49 +2757,15 @@ class AI_Chat_Persona_Pro_Ultimate {
         return ['error' => 'Unexpected Google response'];
     }
 
-    private function call_deepseek($msgs, $persona) {
-        $key = $this->get_api_key('deepseek');
-        if (!$key) return ['error' => 'DeepSeek key not set.'];
-        $r = wp_remote_post('https://api.deepseek.com/chat/completions', [
-            'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json'],
-            'body' => wp_json_encode(['model' => $persona->model, 'messages' => $msgs, 'temperature' => (float)$persona->temperature, 'max_tokens' => (int)$persona->max_tokens]),
-            'timeout' => 120,
-        ]);
-        if (is_wp_error($r)) return ['error' => $r->get_error_message()];
-        $b = json_decode(wp_remote_retrieve_body($r), true);
-        return isset($b['error']) ? ['error' => $b['error']['message'] ?? 'DeepSeek error'] : $b;
-    }
-
-    private function call_mistral($msgs, $persona) {
-        $key = $this->get_api_key('mistral');
-        if (!$key) return ['error' => 'Mistral key not set.'];
-        $r = wp_remote_post('https://api.mistral.ai/v1/chat/completions', [
-            'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json'],
-            'body' => wp_json_encode(['model' => $persona->model, 'messages' => $msgs, 'temperature' => (float)$persona->temperature, 'max_tokens' => (int)$persona->max_tokens]),
-            'timeout' => 120,
-        ]);
-        if (is_wp_error($r)) return ['error' => $r->get_error_message()];
-        $b = json_decode(wp_remote_retrieve_body($r), true);
-        return isset($b['error']) ? ['error' => $b['error']['message'] ?? 'Mistral error'] : $b;
-    }
-
-    private function call_groq($msgs, $persona) {
-        $key = $this->get_api_key('groq');
-        if (!$key) return ['error' => 'Groq key not set.'];
-        $r = wp_remote_post('https://api.groq.com/openai/v1/chat/completions', [
-            'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json'],
-            'body' => wp_json_encode(['model' => $persona->model, 'messages' => $msgs, 'temperature' => (float)$persona->temperature, 'max_tokens' => (int)$persona->max_tokens]),
-            'timeout' => 120,
-        ]);
-        if (is_wp_error($r)) return ['error' => $r->get_error_message()];
-        $b = json_decode(wp_remote_retrieve_body($r), true);
-        return isset($b['error']) ? ['error' => $b['error']['message'] ?? 'Groq error'] : $b;
-    }
-
     private function call_openrouter($msgs, $persona) {
         $key = $this->get_api_key('openrouter');
         if (!$key) return ['error' => 'OpenRouter key not set.'];
-        $model = str_replace('openrouter/', '', $persona->model);
+        // Strip ONLY the leading "openrouter/" wrapper that we added in our model preset list.
+        // Do not touch any other slashes or "openrouter/" segments inside the upstream id.
+        $model = $persona->model;
+        if (strpos($model, 'openrouter/') === 0) {
+            $model = substr($model, strlen('openrouter/'));
+        }
         $r = wp_remote_post('https://openrouter.ai/api/v1/chat/completions', [
             'headers' => ['Authorization' => 'Bearer ' . $key, 'Content-Type' => 'application/json', 'HTTP-Referer' => get_site_url(), 'X-Title' => get_bloginfo('name')],
             'body' => wp_json_encode(['model' => $model, 'messages' => $msgs, 'temperature' => (float)$persona->temperature, 'max_tokens' => (int)$persona->max_tokens]),
@@ -2199,546 +2777,896 @@ class AI_Chat_Persona_Pro_Ultimate {
     }
 
     // ===================== SHORTCODE =====================
-    public function chat_shortcode($atts) {
-        static $css_rendered = false;
-
-        $atts = shortcode_atts([
-            'height'       => '700px',
-            'show_history' => 'true',
-            'allow_upload' => 'true',
-            'allow_voice'  => 'true',
-        ], $atts);
-
-        $sid           = 'sess_' . wp_generate_uuid4();
-        $show_history  = $atts['show_history'] === 'true';
-        $allow_upload  = $atts['allow_upload'] === 'true';
-        $allow_voice   = $atts['allow_voice'] === 'true';
-        $is_logged_in  = is_user_logged_in();
-        $require_login = get_option('aicpp_require_login', '1') === '1';
-        $chat_nonce    = wp_create_nonce('aicpp_chat');
-        $reg_nonce     = wp_create_nonce('aicpp_register');
-        $login_nonce   = wp_create_nonce('aicpp_login');
-        $ajaxurl       = admin_url('admin-ajax.php');
-
+    // VERSACE22 INTEGRATION: 100% frontend rendering delegation with standalone fallback
+        public function chat_shortcode($atts = []) {
+        $atts = shortcode_atts(['height' => '700px'], $atts, 'ai_chat_persona');
+        // If bridge is present and ready, delegate fully
+        if ($this->bridge_ready && function_exists('versace22_render_app')) {
+            return versace22_render_app(['height' => $atts['height'], 'plugin' => 'ai-chat-persona-pro', 'version' => AI_CHAT_PERSONA_PRO_VERSION, 'instance' => $this]);
+        }
+        // STANDALONE FALLBACK: Minimal React root + inline loader
+        $root_id = 'aicpp-standalone-root-' . uniqid();
+        $height = esc_attr($atts['height']);
+        $ajax_url = esc_url(admin_url('admin-ajax.php'));
+        $nonce = wp_create_nonce('aicpp_chat');
         ob_start();
-
-        if (!$css_rendered) {
-            echo '<style>' . $this->get_frontend_css() . '</style>';
-            $css_rendered = true;
-        }
-
-        // If login is required and user is not logged in, show login/register form
-        if ($require_login && !$is_logged_in) {
-            $login_message = get_option('aicpp_login_message', 'Please sign in to access your AI assistant.');
-            ?>
-            <div id="aicpp-auth-<?php echo esc_attr($sid); ?>" class="aicpp-auth-wrapper" style="max-width:440px;margin:40px auto">
-                <div class="aicpp-auth-box">
-                    <div class="aicpp-auth-header">
-                        <div style="font-size:40px;margin-bottom:12px">&#x1F916;</div>
-                        <h2>AI Chat Persona Pro</h2>
-                        <p><?php echo esc_html($login_message); ?></p>
-                    </div>
-                    <div id="login-tab-<?php echo esc_attr($sid); ?>" class="aicpp-auth-tab active">
-                        <form id="login-form-<?php echo esc_attr($sid); ?>">
-                            <div class="aicpp-auth-field"><label>Email or Username</label><input type="text" id="login-user-<?php echo esc_attr($sid); ?>" placeholder="you@example.com" required></div>
-                            <div class="aicpp-auth-field"><label>Password</label><input type="password" id="login-pass-<?php echo esc_attr($sid); ?>" placeholder="Your password" required></div>
-                            <div id="login-msg-<?php echo esc_attr($sid); ?>" class="aicpp-auth-msg" style="display:none"></div>
-                            <button type="submit" class="aicpp-auth-submit">Sign In</button>
-                        </form>
-                        <p class="aicpp-auth-switch">Don't have an account? <a href="#" id="show-register-<?php echo esc_attr($sid); ?>">Sign up</a></p>
-                    </div>
-                    <div id="register-tab-<?php echo esc_attr($sid); ?>" class="aicpp-auth-tab" style="display:none">
-                        <form id="register-form-<?php echo esc_attr($sid); ?>">
-                            <div class="aicpp-auth-field"><label>Display Name</label><input type="text" id="reg-display-<?php echo esc_attr($sid); ?>" placeholder="Your name"></div>
-                            <div class="aicpp-auth-field"><label>Username *</label><input type="text" id="reg-user-<?php echo esc_attr($sid); ?>" placeholder="Choose a username" required></div>
-                            <div class="aicpp-auth-field"><label>Email *</label><input type="email" id="reg-email-<?php echo esc_attr($sid); ?>" placeholder="you@example.com" required></div>
-                            <div class="aicpp-auth-field"><label>Password *</label><input type="password" id="reg-pass-<?php echo esc_attr($sid); ?>" placeholder="Min 8 characters" required minlength="8"></div>
-                            <div id="reg-msg-<?php echo esc_attr($sid); ?>" class="aicpp-auth-msg" style="display:none"></div>
-                            <button type="submit" class="aicpp-auth-submit">Create Account</button>
-                        </form>
-                        <p class="aicpp-auth-switch">Already have an account? <a href="#" id="show-login-<?php echo esc_attr($sid); ?>">Sign in</a></p>
-                    </div>
-                </div>
-            </div>
-            <script>
-            (function(){
-                var sid = <?php echo wp_json_encode($sid); ?>;
-                var ajaxurl = <?php echo wp_json_encode($ajaxurl); ?>;
-                var loginNonce = <?php echo wp_json_encode($login_nonce); ?>;
-                var regNonce = <?php echo wp_json_encode($reg_nonce); ?>;
-                document.getElementById('show-register-' + sid).addEventListener('click', function(e){ e.preventDefault(); document.getElementById('login-tab-' + sid).style.display = 'none'; document.getElementById('register-tab-' + sid).style.display = 'block'; });
-                document.getElementById('show-login-' + sid).addEventListener('click', function(e){ e.preventDefault(); document.getElementById('register-tab-' + sid).style.display = 'none'; document.getElementById('login-tab-' + sid).style.display = 'block'; });
-                document.getElementById('login-form-' + sid).addEventListener('submit', function(e){
-                    e.preventDefault(); var msg = document.getElementById('login-msg-' + sid); var btn = this.querySelector('.aicpp-auth-submit'); btn.disabled = true; btn.textContent = 'Signing in...';
-                    var fd = new FormData(); fd.append('action', 'aicpp_login_user'); fd.append('nonce', loginNonce); fd.append('login', document.getElementById('login-user-' + sid).value); fd.append('password', document.getElementById('login-pass-' + sid).value);
-                    fetch(ajaxurl, {method:'POST', body:fd}).then(function(r){return r.json()}).then(function(d){ msg.style.display = 'block'; if (d.success) { msg.className = 'aicpp-auth-msg success'; msg.textContent = d.data.message; setTimeout(function(){ location.reload(); }, 1000); } else { msg.className = 'aicpp-auth-msg error'; msg.textContent = d.data.message; btn.disabled = false; btn.textContent = 'Sign In'; } }).catch(function(){ msg.style.display='block'; msg.className='aicpp-auth-msg error'; msg.textContent='Connection error.'; btn.disabled=false; btn.textContent='Sign In'; });
-                });
-                document.getElementById('register-form-' + sid).addEventListener('submit', function(e){
-                    e.preventDefault(); var msg = document.getElementById('reg-msg-' + sid); var btn = this.querySelector('.aicpp-auth-submit'); btn.disabled = true; btn.textContent = 'Creating...';
-                    var fd = new FormData(); fd.append('action', 'aicpp_register_user'); fd.append('nonce', regNonce); fd.append('display_name', document.getElementById('reg-display-' + sid).value); fd.append('username', document.getElementById('reg-user-' + sid).value); fd.append('email', document.getElementById('reg-email-' + sid).value); fd.append('password', document.getElementById('reg-pass-' + sid).value);
-                    fetch(ajaxurl, {method:'POST', body:fd}).then(function(r){return r.json()}).then(function(d){ msg.style.display = 'block'; if (d.success) { msg.className = 'aicpp-auth-msg success'; msg.textContent = d.data.message; setTimeout(function(){ location.reload(); }, 1000); } else { msg.className = 'aicpp-auth-msg error'; msg.textContent = d.data.message; btn.disabled = false; btn.textContent = 'Create Account'; } }).catch(function(){ msg.style.display='block'; msg.className='aicpp-auth-msg error'; msg.textContent='Connection error.'; btn.disabled=false; btn.textContent='Create Account'; });
-                });
-            })();
-            </script>
-            <?php
-            return ob_get_clean();
-        }
-
-        // ---- LOGGED IN: Show chat interface ----
-        $user = wp_get_current_user();
-        $main_enabled = get_option('aicpp_main_char_enabled', '0') === '1';
-        $main_name = get_option('aicpp_main_char_name', 'AI Assistant');
-        $main_initials = get_option('aicpp_main_char_avatar_initials', 'AI');
-        $main_color = get_option('aicpp_main_char_avatar_color', '#667eea');
         ?>
-        <div id="aicpp-wrapper-<?php echo esc_attr($sid); ?>" class="aicpp-wrapper" style="height:<?php echo esc_attr($atts['height']); ?>">
-            <!-- Sidebar -->
-            <?php if ($show_history): ?>
-            <div class="aicpp-sidebar" id="sidebar-<?php echo esc_attr($sid); ?>">
-                <div class="aicpp-sidebar-header">
-                    <h3>AI Chat</h3>
-                    <button class="aicpp-new-chat" id="new-<?php echo esc_attr($sid); ?>" title="New conversation">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                    </button>
-                </div>
-
-                <?php if ($main_enabled): ?>
-                <!-- Main Character Button (always visible, separate from personas) -->
-                <div class="aicpp-main-char-btn" id="main-char-btn-<?php echo esc_attr($sid); ?>" style="padding:12px 16px;background:linear-gradient(135deg,<?php echo esc_attr($main_color); ?>,#764ba2);color:#fff;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:2px solid #e5e7eb;transition:all 0.2s">
-                    <div style="width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0"><?php echo esc_html(mb_strtoupper(mb_substr($main_initials, 0, 2))); ?></div>
-                    <div style="flex:1;min-width:0">
-                        <div style="font-size:14px;font-weight:700"><?php echo esc_html($main_name); ?></div>
-                        <div style="font-size:11px;opacity:0.8">Main Site Assistant</div>
-                    </div>
-                </div>
-                <?php endif; ?>
-
-                <!-- Persona section header -->
-                <div style="padding:10px 16px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-size:12px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">
-                    &#x1F3AD; My Personas
-                </div>
-
-                <!-- Persona selector -->
-                <div class="aicpp-persona-selector" id="persona-selector-<?php echo esc_attr($sid); ?>">
-                    <div class="aicpp-loading">Loading personas...</div>
-                </div>
-
-                <!-- Conversation list -->
-                <div style="padding:8px 16px 4px;font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px">
-                    &#x1F4AC; History
-                </div>
-                <div class="aicpp-conversations-list" id="convos-<?php echo esc_attr($sid); ?>">
-                    <div class="aicpp-loading">Loading...</div>
-                </div>
-
-                <div class="aicpp-sidebar-footer">
-                    <p style="font-size:13px;color:#6b7280;margin:0">Welcome, <?php echo esc_html($user->display_name); ?></p>
-                    <a href="<?php echo esc_url(wp_logout_url(get_permalink())); ?>" style="font-size:12px;color:#9ca3af">Sign out</a>
-                </div>
-            </div>
-            <?php endif; ?>
-
-            <!-- Chat area -->
-            <div class="aicpp-chat-container">
-                <div class="aicpp-header" id="header-<?php echo esc_attr($sid); ?>">
-                    <?php if ($show_history): ?>
-                    <button class="aicpp-toggle-sidebar" id="toggle-<?php echo esc_attr($sid); ?>">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-                    </button>
-                    <?php endif; ?>
-                    <div class="aicpp-avatar" id="avatar-<?php echo esc_attr($sid); ?>" style="background:<?php echo $main_enabled ? esc_attr($main_color) : '#667eea'; ?>"><span><?php echo $main_enabled ? esc_html(mb_strtoupper(mb_substr($main_initials, 0, 2))) : 'AI'; ?></span></div>
-                    <div class="aicpp-header-info">
-                        <h3 id="title-<?php echo esc_attr($sid); ?>"><?php echo $main_enabled ? esc_html($main_name) : 'Select an Assistant'; ?></h3>
-                        <span class="aicpp-status"><span class="aicpp-status-dot"></span> Online</span>
-                    </div>
-                    <button class="aicpp-clear-btn" id="clear-<?php echo esc_attr($sid); ?>" title="Clear conversation">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
-                </div>
-
-                <div class="aicpp-messages" id="msgs-<?php echo esc_attr($sid); ?>">
-                    <div class="aicpp-welcome">
-                        <div class="aicpp-welcome-icon" style="font-size:48px">&#x1F4AC;</div>
-                        <h4>Welcome, <?php echo esc_html($user->display_name); ?>!</h4>
-                        <?php if ($main_enabled): ?>
-                            <p>Start chatting with <strong><?php echo esc_html($main_name); ?></strong>, or select a persona from the sidebar.</p>
-                        <?php else: ?>
-                            <p>Select an assistant from the sidebar to begin chatting.</p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <div class="aicpp-input-wrapper">
-                    <div class="aicpp-file-preview" id="preview-<?php echo esc_attr($sid); ?>" style="display:none"></div>
-                    <div class="aicpp-input-container">
-                        <div class="aicpp-input-actions">
-                            <?php if ($allow_upload): ?>
-                            <button class="aicpp-action-btn" id="upload-btn-<?php echo esc_attr($sid); ?>" title="Upload file">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-                            </button>
-                            <input type="file" id="file-<?php echo esc_attr($sid); ?>" accept="image/*,.pdf,.txt" style="display:none">
-                            <?php endif; ?>
-                            <?php if ($allow_voice): ?>
-                            <button class="aicpp-action-btn" id="voice-btn-<?php echo esc_attr($sid); ?>" title="Voice input">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2M12 19v4M8 23h8"/></svg>
-                            </button>
-                            <?php endif; ?>
-                        </div>
-                        <textarea id="inp-<?php echo esc_attr($sid); ?>" class="aicpp-input" placeholder="<?php echo $main_enabled ? 'Type your message to ' . esc_attr($main_name) . '...' : 'Select an assistant first...'; ?>" rows="1" <?php echo $main_enabled ? '' : 'disabled'; ?>></textarea>
-                        <button id="btn-<?php echo esc_attr($sid); ?>" class="aicpp-send-btn" title="Send message" <?php echo $main_enabled ? '' : 'disabled'; ?>>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                    </div>
-                    <div class="aicpp-footer-text">Powered by <strong><?php echo esc_html(ucfirst(get_option('aicpp_api_provider', 'OpenAI'))); ?></strong></div>
-                </div>
+        <div id="<?php echo esc_attr($root_id); ?>" style="width:100%;height:<?php echo $height; ?>;border:1px solid #ddd;border-radius:8px;display:flex;align-items:center;justify-content:center;background:#fafafa;">
+            <div style="text-align:center;color:#666;font-family:sans-serif;">
+                <p><strong>AI Chat Persona Pro</strong></p>
+                <p>Bridge not detected. Running in standalone mode.</p>
+                <p style="font-size:12px;color:#999;">Install versace22-enqueue.php for full UI.</p>
             </div>
         </div>
-
         <script>
         (function(){
-            "use strict";
-
-            var sid = <?php echo wp_json_encode($sid); ?>;
-            var ajaxurl = <?php echo wp_json_encode($ajaxurl); ?>;
-            var chatNonce = <?php echo wp_json_encode($chat_nonce); ?>;
-            var mainEnabled = <?php echo wp_json_encode($main_enabled); ?>;
-
-            var container = document.getElementById('msgs-' + sid);
-            var input = document.getElementById('inp-' + sid);
-            var btn = document.getElementById('btn-' + sid);
-            var clearBtn = document.getElementById('clear-' + sid);
-            var previewEl = document.getElementById('preview-' + sid);
-            var avatarEl = document.getElementById('avatar-' + sid);
-            var titleEl = document.getElementById('title-' + sid);
-
-            var currentSessionId = sid;
-            var currentPersonaId = null;
-            var currentConvoId = null;
-            var isMainChat = mainEnabled; // Start in main chat mode if enabled
-            var uploadedFile = null;
-            var personas = [];
-            var mainCharacter = null;
-            var mediaRecorder = null;
-            var audioChunks = [];
-
-            function escapeHtml(t){ var d=document.createElement('div'); d.textContent=t||''; return d.innerHTML; }
-            function formatMessage(t){ t=escapeHtml(t); t=t.replace(/```([\s\S]*?)```/g,'<pre><code>$1</code></pre>'); t=t.replace(/`([^`]+)`/g,'<code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:13px">$1</code>'); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); t=t.replace(/\n/g,'<br>'); return t; }
-            function getTime(){ return new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}); }
-
-            function addMessage(text, isUser, attachment){
-                var w=container.querySelector('.aicpp-welcome'); if(w)w.remove();
-                var div=document.createElement('div'); div.className='aicpp-message '+(isUser?'user':'assistant');
-                var content=document.createElement('div'); content.className='aicpp-message-content';
-                if(attachment){var a=document.createElement('div');a.className='aicpp-message-attachment';if(attachment.file_type&&attachment.file_type.indexOf('image/')===0){a.innerHTML='<img src="'+escapeHtml(attachment.file_url)+'">';}else{a.className+=' file';a.textContent=attachment.file_name;}content.appendChild(a);}
-                var td=document.createElement('div');td.innerHTML=formatMessage(text);content.appendChild(td);
-                var tm=document.createElement('div');tm.className='aicpp-message-time';tm.textContent=getTime();content.appendChild(tm);
-                div.appendChild(content);container.appendChild(div);container.scrollTop=container.scrollHeight;
-            }
-
-            function showTyping(){var d=document.createElement('div');d.className='aicpp-message assistant';d.id='typing-'+sid;d.innerHTML='<div class="aicpp-typing"><span></span><span></span><span></span></div>';container.appendChild(d);container.scrollTop=container.scrollHeight;}
-            function hideTyping(){var t=document.getElementById('typing-'+sid);if(t)t.remove();}
-            function autoResize(){input.style.height='auto';input.style.height=Math.min(input.scrollHeight,120)+'px';}
-            input.addEventListener('input', autoResize);
-
-            // ---- Load Personas ----
-            function loadPersonas(){
-                var fd=new FormData();
-                fd.append('action','aicpp_get_my_personas');
-                fd.append('nonce',chatNonce);
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-                    if(d.success){
-                        personas = d.data.personas;
-                        mainCharacter = d.data.main_character;
-                        renderPersonaSelector();
-                        // If main character is enabled, start in main chat mode
-                        if (mainCharacter) {
-                            activateMainChat();
-                        } else if (personas.length === 1) {
-                            selectPersona(personas[0]);
-                        }
-                    } else {
-                        var sel=document.getElementById('persona-selector-'+sid);
-                        if(sel)sel.innerHTML='<div class="aicpp-empty" style="padding:20px;text-align:center;font-size:13px;color:#9ca3af">'+escapeHtml(d.data.message || 'No assistants available.')+'</div>';
-                    }
-                });
-            }
-
-            function renderPersonaSelector(){
-                var sel=document.getElementById('persona-selector-'+sid);
-                if(!sel)return;
-                if(personas.length===0){sel.innerHTML='<div class="aicpp-empty" style="padding:15px;text-align:center;font-size:12px;color:#9ca3af">No personas assigned yet.</div>';return;}
-                sel.innerHTML = personas.map(function(p){
-                    var badge = p.visibility === 'public' ? '<span style="font-size:9px;background:#228be6;color:#fff;padding:1px 5px;border-radius:8px;margin-left:4px">PUBLIC</span>' : '';
-                    return '<div class="aicpp-persona-item'+(currentPersonaId==p.id && !isMainChat?' active':'')+'" data-id="'+p.id+'" style="display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;border-bottom:1px solid #e5e7eb;transition:all 0.2s">'
-                        +'<div style="width:36px;height:36px;border-radius:50%;background:'+escapeHtml(p.avatar_color)+';display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px;flex-shrink:0">'+escapeHtml(p.avatar_initials)+'</div>'
-                        +'<div style="flex:1;min-width:0"><div style="font-size:14px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(p.name)+badge+'</div>'
-                        +'<div style="font-size:11px;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(p.description||p.model)+'</div></div></div>';
-                }).join('');
-
-                sel.querySelectorAll('.aicpp-persona-item').forEach(function(item){
-                    item.addEventListener('click',function(){
-                        var id=parseInt(this.dataset.id);
-                        var p=personas.find(function(x){return x.id===id});
-                        if(p)selectPersona(p);
-                    });
-                    item.addEventListener('mouseenter',function(){if(!this.classList.contains('active'))this.style.background='#f3f4f6';});
-                    item.addEventListener('mouseleave',function(){if(!this.classList.contains('active'))this.style.background='';});
-                });
-            }
-
-            function activateMainChat(){
-                isMainChat = true;
-                currentPersonaId = null;
-                if (mainCharacter) {
-                    titleEl.textContent = mainCharacter.name;
-                    avatarEl.style.background = mainCharacter.avatar_color;
-                    avatarEl.querySelector('span').textContent = mainCharacter.avatar_initials;
-                    input.disabled = false;
-                    input.placeholder = 'Type your message to ' + mainCharacter.name + '...';
-                    btn.disabled = false;
-                }
-                // Highlight main char button, unhighlight personas
-                var mainBtn = document.getElementById('main-char-btn-' + sid);
-                if (mainBtn) mainBtn.style.opacity = '1';
-                var sel = document.getElementById('persona-selector-' + sid);
-                if (sel) sel.querySelectorAll('.aicpp-persona-item').forEach(function(item){
-                    item.classList.remove('active'); item.style.background=''; item.style.borderLeft='';
-                });
-                clearChat(true);
-                loadConversations();
-                input.focus();
-            }
-
-            function selectPersona(p){
-                isMainChat = false;
-                currentPersonaId = p.id;
-                titleEl.textContent = p.name;
-                avatarEl.style.background = p.avatar_color;
-                avatarEl.querySelector('span').textContent = p.avatar_initials;
-                input.disabled = false;
-                input.placeholder = 'Type your message to '+p.name+'...';
-                btn.disabled = false;
-                clearChat(true);
-
-                // Highlight in selector, dim main char
-                var mainBtn = document.getElementById('main-char-btn-' + sid);
-                if (mainBtn) mainBtn.style.opacity = '0.6';
-                var sel=document.getElementById('persona-selector-'+sid);
-                if(sel){
-                    sel.querySelectorAll('.aicpp-persona-item').forEach(function(item){
-                        if(parseInt(item.dataset.id)===p.id){item.classList.add('active');item.style.background='#eef2ff';item.style.borderLeft='3px solid #667eea';}
-                        else{item.classList.remove('active');item.style.background='';item.style.borderLeft='';}
-                    });
-                }
-
-                loadConversations();
-                input.focus();
-            }
-
-            function clearChat(silent){
-                currentConvoId = null;
-                currentSessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2,9);
-                uploadedFile = null;
-                if(previewEl)previewEl.style.display='none';
-                var chatName = isMainChat ? (mainCharacter ? mainCharacter.name : 'Assistant') : (currentPersonaId ? (personas.find(function(x){return x.id===currentPersonaId})||{}).name||'Assistant' : 'an assistant');
-                container.innerHTML='<div class="aicpp-welcome"><div class="aicpp-welcome-icon" style="font-size:48px">&#x1F4AC;</div><h4>Chat with '+escapeHtml(chatName)+'</h4><p>Start a new conversation</p></div>';
-                if(!silent){
-                    var convos=document.getElementById('convos-'+sid);
-                    if(convos)convos.querySelectorAll('.aicpp-convo-item').forEach(function(i){i.classList.remove('active');});
-                }
-            }
-
-            // Main character click handler
-            var mainCharBtn = document.getElementById('main-char-btn-' + sid);
-            if (mainCharBtn) {
-                mainCharBtn.addEventListener('click', function(){ activateMainChat(); });
-            }
-
-            // ---- Conversations ----
-            <?php if ($show_history): ?>
-            var sidebar=document.getElementById('sidebar-'+sid);
-            var convosList=document.getElementById('convos-'+sid);
-            var newBtn=document.getElementById('new-'+sid);
-            var toggleBtn=document.getElementById('toggle-'+sid);
-
-            function loadConversations(){
-                var fd=new FormData();fd.append('action','aicpp_get_conversations');fd.append('nonce',chatNonce);fd.append('session_id',currentSessionId);
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-                    if(d.success){
-                        var filtered;
-                        if (isMainChat) {
-                            filtered = d.data.conversations.filter(function(c){ return c.is_main_chat == 1 || c.is_main_chat == '1'; });
-                        } else if (currentPersonaId) {
-                            filtered = d.data.conversations.filter(function(c){ return c.persona_id == currentPersonaId && c.is_main_chat != 1 && c.is_main_chat != '1'; });
-                        } else {
-                            filtered = d.data.conversations;
-                        }
-                        renderConversations(filtered);
-                    }
-                });
-            }
-
-            function renderConversations(convos){
-                if(convos.length===0){convosList.innerHTML='<div class="aicpp-loading" style="font-size:13px">No conversations yet</div>';return;}
-                convosList.innerHTML=convos.map(function(c){
-                    return '<div class="aicpp-convo-item'+(currentConvoId==c.id?' active':'')+'" data-id="'+c.id+'" data-main="'+(c.is_main_chat||0)+'">'
-                        +'<div class="aicpp-convo-title">'+escapeHtml(c.title)+'</div>'
-                        +'<div class="aicpp-convo-meta"><span>'+new Date(c.updated_at).toLocaleDateString()+'</span></div>'
-                        +'<div class="aicpp-convo-actions"><button class="aicpp-convo-btn load-convo">Load</button><button class="aicpp-convo-btn delete-convo">Delete</button></div></div>';
-                }).join('');
-                convosList.querySelectorAll('.load-convo').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();loadConversation(this.closest('.aicpp-convo-item').dataset.id);});});
-                convosList.querySelectorAll('.delete-convo').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();deleteConversation(this.closest('.aicpp-convo-item').dataset.id);});});
-            }
-
-            function loadConversation(id){
-                var fd=new FormData();fd.append('action','aicpp_load_conversation');fd.append('nonce',chatNonce);fd.append('conversation_id',id);fd.append('session_id',currentSessionId);
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-                    if(d.success){
-                        currentSessionId=d.data.session_id;currentConvoId=id;
-                        container.innerHTML='';
-                        d.data.messages.forEach(function(m){addMessage(m.content,m.role==='user');});
-                        convosList.querySelectorAll('.aicpp-convo-item').forEach(function(i){i.classList.toggle('active',i.dataset.id==id);});
-                    }
-                });
-            }
-
-            function deleteConversation(id){
-                if(!confirm('Delete?'))return;
-                var fd=new FormData();fd.append('action','aicpp_delete_conversation');fd.append('nonce',chatNonce);fd.append('conversation_id',id);fd.append('session_id',currentSessionId);
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){if(d.success){loadConversations();if(currentConvoId==id)clearChat();}});
-            }
-
-            newBtn.addEventListener('click',function(){clearChat();});
-            toggleBtn.addEventListener('click',function(){sidebar.classList.toggle('hidden');});
-            <?php endif; ?>
-
-            // ---- Upload ----
-            <?php if ($allow_upload): ?>
-            var uploadBtn=document.getElementById('upload-btn-'+sid),fileInput=document.getElementById('file-'+sid);
-            uploadBtn.addEventListener('click',function(){fileInput.click();});
-            fileInput.addEventListener('change',function(){
-                if(!this.files.length)return;
-                var fd=new FormData();fd.append('action','aicpp_upload_file');fd.append('nonce',chatNonce);fd.append('file',this.files[0]);
-                previewEl.style.display='block';previewEl.innerHTML='<div style="text-align:center;padding:12px">Uploading...</div>';
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){
-                    if(d.success){
-                        uploadedFile=d.data;
-                        var html='<div class="aicpp-file-preview-item">';
-                        if(d.data.file_type&&d.data.file_type.indexOf('image/')===0)html+='<img src="'+escapeHtml(d.data.file_url)+'" style="width:60px;height:60px;object-fit:cover;border-radius:8px">';
-                        html+='<div style="flex:1">'+escapeHtml(d.data.file_name)+'</div><button class="aicpp-remove-file" style="padding:4px 8px;border:1px solid #ddd;background:#fff;border-radius:4px;cursor:pointer">Remove</button></div>';
-                        previewEl.innerHTML=html;
-                        previewEl.querySelector('.aicpp-remove-file').addEventListener('click',function(){uploadedFile=null;previewEl.style.display='none';});
-                    }else{previewEl.innerHTML='<div style="color:#ef4444;padding:12px">'+escapeHtml(d.data.message)+'</div>';setTimeout(function(){previewEl.style.display='none';},3000);}
-                });
-                this.value='';
-            });
-            <?php endif; ?>
-
-            // ---- Voice ----
-            <?php if ($allow_voice): ?>
-            var voiceBtn=document.getElementById('voice-btn-'+sid);
-            function startRec(){navigator.mediaDevices.getUserMedia({audio:true}).then(function(s){mediaRecorder=new MediaRecorder(s);audioChunks=[];mediaRecorder.ondataavailable=function(e){audioChunks.push(e.data);};mediaRecorder.onstop=function(){var b=new Blob(audioChunks,{type:'audio/webm'});transcribeAudio(b);s.getTracks().forEach(function(t){t.stop();});};mediaRecorder.start();voiceBtn.classList.add('recording');}).catch(function(){alert('Microphone denied');});}
-            function stopRec(){if(mediaRecorder&&mediaRecorder.state==='recording'){mediaRecorder.stop();voiceBtn.classList.remove('recording');}}
-            function transcribeAudio(blob){var fd=new FormData();fd.append('action','aicpp_transcribe_audio');fd.append('nonce',chatNonce);fd.append('audio',blob,'recording.webm');input.placeholder='Transcribing...';btn.disabled=true;fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(d){if(d.success){input.value=d.data.text;input.focus();autoResize();}else{alert(d.data.message);}input.placeholder='Type your message...';btn.disabled=false;}).catch(function(){alert('Error');input.placeholder='Type your message...';btn.disabled=false;});}
-            voiceBtn.addEventListener('mousedown',startRec);voiceBtn.addEventListener('mouseup',stopRec);
-            voiceBtn.addEventListener('touchstart',function(e){e.preventDefault();startRec();});voiceBtn.addEventListener('touchend',function(e){e.preventDefault();stopRec();});
-            <?php endif; ?>
-
-            // ---- Send ----
-            function send(){
-                var message=input.value.trim();
-                if(!message||btn.disabled)return;
-                // Must be in main chat mode or have a persona selected
-                if(!isMainChat && !currentPersonaId) return;
-
-                var attachment=uploadedFile;
-                addMessage(message,true,attachment);
-                input.value='';input.style.height='auto';btn.disabled=true;showTyping();
-
-                var fd=new FormData();
-                // Use different action for main chat vs persona chat
-                if (isMainChat) {
-                    fd.append('action','aicpp_chat_main');
-                } else {
-                    fd.append('action','aicpp_chat');
-                    fd.append('persona_id',currentPersonaId);
-                }
-                fd.append('nonce',chatNonce);
-                fd.append('message',message);
-                fd.append('session_id',currentSessionId);
-                if(attachment){fd.append('has_attachment','1');fd.append('attachment_url',attachment.file_url);fd.append('attachment_type',attachment.file_type);if(attachment.file_data)fd.append('attachment_data',attachment.file_data);}
-
-                fetch(ajaxurl,{method:'POST',body:fd}).then(function(r){return r.json()}).then(function(data){
-                    hideTyping();
-                    if(data.success){addMessage(data.data.message,false);if(data.data.conversation_id)currentConvoId=data.data.conversation_id;<?php if($show_history):?>loadConversations();<?php endif;?>}
-                    else{addMessage('Error: '+(data.data.message||'Unknown'),false);}
-                    btn.disabled=false;input.focus();uploadedFile=null;if(previewEl)previewEl.style.display='none';
-                }).catch(function(){hideTyping();addMessage('Connection error.',false);btn.disabled=false;input.focus();});
-            }
-
-            clearBtn.addEventListener('click',function(){if(confirm('Clear?'))clearChat();});
-            btn.addEventListener('click',send);
-            input.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
-
-            // Init
-            loadPersonas();
+            var root = document.getElementById('<?php echo esc_js($root_id); ?>');
+            window.aicppStandalone = window.aicppStandalone || {};
+            window.aicppStandalone.ajaxUrl = '<?php echo $ajax_url; ?>';
+            window.aicppStandalone.nonce = '<?php echo esc_js($nonce); ?>';
         })();
         </script>
         <?php
         return ob_get_clean();
     }
 
-    private function get_frontend_css() {
-        return '
-        .aicpp-wrapper{display:flex;background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;max-width:100%;margin:0 auto;position:relative}
-        .aicpp-sidebar{width:300px;background:#f9fafb;border-right:1px solid #e5e7eb;display:flex;flex-direction:column;transition:margin-left 0.3s}.aicpp-sidebar.hidden{margin-left:-300px}
-        .aicpp-sidebar-header{padding:16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e5e7eb}.aicpp-sidebar-header h3{margin:0;font-size:16px;color:#111827}
-        .aicpp-new-chat{width:36px;height:36px;border-radius:8px;border:2px solid #667eea;background:#fff;color:#667eea;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.aicpp-new-chat:hover{background:#667eea;color:#fff}
-        .aicpp-persona-selector{border-bottom:1px solid #e5e7eb;max-height:200px;overflow-y:auto}
-        .aicpp-persona-item.active{background:#eef2ff !important;border-left:3px solid #667eea !important}
-        .aicpp-conversations-list{flex:1;overflow-y:auto;padding:8px}
-        .aicpp-convo-item{padding:10px 12px;border-radius:8px;margin-bottom:4px;cursor:pointer;transition:all 0.2s;border:1px solid transparent}.aicpp-convo-item:hover{background:#fff;border-color:#e5e7eb}.aicpp-convo-item.active{background:#667eea;color:#fff}
-        .aicpp-convo-title{font-size:13px;font-weight:500;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.aicpp-convo-meta{font-size:11px;opacity:0.7}
-        .aicpp-convo-actions{display:none;gap:8px;margin-top:6px}.aicpp-convo-item:hover .aicpp-convo-actions{display:flex}.aicpp-convo-btn{font-size:11px;padding:3px 8px;border:1px solid #e5e7eb;background:#fff;border-radius:4px;cursor:pointer}.aicpp-convo-btn:hover{background:#f3f4f6}
-        .aicpp-loading{text-align:center;padding:20px;color:#9ca3af;font-size:13px}
-        .aicpp-sidebar-footer{border-top:1px solid #e5e7eb;padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
-        .aicpp-chat-container{flex:1;display:flex;flex-direction:column;min-width:0}
-        .aicpp-header{display:flex;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
-        .aicpp-toggle-sidebar{width:36px;height:36px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.aicpp-toggle-sidebar:hover{background:rgba(255,255,255,0.25)}
-        .aicpp-avatar{width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0;color:#fff}
-        .aicpp-header-info{flex:1;min-width:0}.aicpp-header-info h3{margin:0;font-size:16px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .aicpp-status{display:flex;align-items:center;gap:6px;font-size:13px;opacity:0.9;margin-top:2px}.aicpp-status-dot{width:8px;height:8px;background:#4ade80;border-radius:50%;animation:aicpp-pulse 2s ease-in-out infinite}@keyframes aicpp-pulse{0%,100%{opacity:1}50%{opacity:0.5}}
-        .aicpp-clear-btn{width:36px;height:36px;border-radius:8px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0}.aicpp-clear-btn:hover{background:rgba(255,255,255,0.25)}
-        .aicpp-messages{flex:1;overflow-y:auto;padding:20px;background:#f9fafb;scroll-behavior:smooth}
-        .aicpp-welcome{text-align:center;padding:40px 20px;color:#6b7280}.aicpp-welcome h4{font-size:20px;color:#111827;margin:0 0 8px}.aicpp-welcome p{margin:0;font-size:14px}
-        .aicpp-message{display:flex;margin-bottom:16px;animation:aicpp-fadeIn 0.3s ease-in}@keyframes aicpp-fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}.aicpp-message.user{justify-content:flex-end}
-        .aicpp-message-content{max-width:75%;padding:12px 16px;border-radius:16px;line-height:1.5;font-size:14px}
-        .aicpp-message.user .aicpp-message-content{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border-bottom-right-radius:4px}
-        .aicpp-message.assistant .aicpp-message-content{background:#fff;color:#111827;border:1px solid #e5e7eb;border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,0.05)}
-        .aicpp-message-time{font-size:11px;opacity:0.6;margin-top:4px}
-        .aicpp-message-attachment{max-width:300px;margin:8px 0;border-radius:8px;overflow:hidden}.aicpp-message-attachment img{width:100%;display:block}.aicpp-message-attachment.file{padding:12px;background:rgba(0,0,0,0.05);display:flex;align-items:center;gap:8px}
-        .aicpp-typing{display:inline-flex;gap:4px;padding:12px 16px;background:#fff;border-radius:16px;border-bottom-left-radius:4px;border:1px solid #e5e7eb}.aicpp-typing span{width:8px;height:8px;background:#667eea;border-radius:50%;animation:aicpp-bounce 1.4s ease-in-out infinite}.aicpp-typing span:nth-child(2){animation-delay:0.2s}.aicpp-typing span:nth-child(3){animation-delay:0.4s}@keyframes aicpp-bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-8px)}}
-        .aicpp-input-wrapper{background:#fff;border-top:1px solid #e5e7eb;padding:16px 20px}
-        .aicpp-file-preview{padding:12px;background:#f9fafb;border-radius:8px;margin-bottom:12px}.aicpp-file-preview-item{display:flex;align-items:center;gap:12px}
-        .aicpp-input-container{display:flex;gap:12px;align-items:flex-end;background:#f9fafb;border:2px solid #e5e7eb;border-radius:12px;padding:8px 12px;transition:border-color 0.2s}.aicpp-input-container:focus-within{border-color:#667eea;background:#fff}
-        .aicpp-input-actions{display:flex;gap:4px;align-items:center}.aicpp-action-btn{width:32px;height:32px;border-radius:6px;border:none;background:transparent;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}.aicpp-action-btn:hover{background:#e5e7eb;color:#111827}.aicpp-action-btn.recording{background:#ef4444;color:#fff;animation:aicpp-pulse-btn 1s ease-in-out infinite}@keyframes aicpp-pulse-btn{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
-        .aicpp-input{flex:1;border:none;background:transparent;outline:none;resize:none;font-family:inherit;font-size:14px;line-height:1.5;max-height:120px;color:#111827}.aicpp-input::placeholder{color:#9ca3af}
-        .aicpp-send-btn{width:36px;height:36px;border-radius:8px;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all 0.2s}.aicpp-send-btn:hover:not(:disabled){transform:scale(1.05);box-shadow:0 4px 12px rgba(102,126,234,0.4)}.aicpp-send-btn:disabled{opacity:0.5;cursor:not-allowed}
-        .aicpp-footer-text{text-align:center;font-size:12px;color:#9ca3af;margin-top:8px}
-        .aicpp-message-content pre{background:#1e293b;color:#e2e8f0;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0;font-size:13px}.aicpp-message-content code{font-family:"Courier New",monospace}.aicpp-message-content p{margin:0 0 8px}.aicpp-message-content p:last-child{margin-bottom:0}
-        .aicpp-auth-wrapper{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-        .aicpp-auth-box{background:#fff;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden}
-        .aicpp-auth-header{text-align:center;padding:30px 30px 20px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
-        .aicpp-auth-header h2{margin:0 0 8px;font-size:22px}.aicpp-auth-header p{margin:0;opacity:0.9;font-size:14px}
-        .aicpp-auth-tab{padding:24px 30px 30px}
-        .aicpp-auth-field{margin-bottom:16px}.aicpp-auth-field label{display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:4px}.aicpp-auth-field input{width:100%;padding:10px 12px;border:2px solid #e5e7eb;border-radius:8px;font-size:14px;transition:border-color 0.2s;box-sizing:border-box}.aicpp-auth-field input:focus{border-color:#667eea;outline:none}
-        .aicpp-auth-submit{width:100%;padding:12px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all 0.2s;margin-top:8px}.aicpp-auth-submit:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(102,126,234,0.4)}.aicpp-auth-submit:disabled{opacity:0.6;cursor:not-allowed;transform:none}
-        .aicpp-auth-switch{text-align:center;font-size:14px;color:#6b7280;margin:16px 0 0}.aicpp-auth-switch a{color:#667eea;text-decoration:none;font-weight:600}.aicpp-auth-switch a:hover{text-decoration:underline}
-        .aicpp-auth-msg{padding:10px;border-radius:8px;margin-bottom:12px;font-size:13px}.aicpp-auth-msg.success{background:#d3f9d8;color:#2b8a3e}.aicpp-auth-msg.error{background:#ffe3e3;color:#c92a2a}
-        .aicpp-main-char-btn:hover{opacity:0.9!important}
-        @media(max-width:768px){.aicpp-sidebar{position:absolute;height:100%;z-index:10;box-shadow:2px 0 8px rgba(0,0,0,0.1)}.aicpp-message-content{max-width:85%}}
-        ';
+
+    public function ajax_update_profile() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in.']);
+
+        $user_id = get_current_user_id();
+        $display_name = sanitize_text_field(wp_unslash($_POST['display_name'] ?? ''));
+        $bio = sanitize_textarea_field(wp_unslash($_POST['bio'] ?? ''));
+        $avatar = esc_url_raw(wp_unslash($_POST['avatar'] ?? '')); // avatar is a URL/data URI, not free text
+
+        if ($display_name === '') wp_send_json_error(['message' => 'Display name is required.']);
+
+        $updated = wp_update_user([
+            'ID' => $user_id,
+            'display_name' => wp_strip_all_tags($display_name),
+            'description' => $bio,
+        ]);
+
+        if (is_wp_error($updated)) {
+            wp_send_json_error(['message' => $updated->get_error_message()]);
+        }
+
+        update_user_meta($user_id, 'aicpp_avatar', $avatar);
+
+        $user = get_userdata($user_id);
+
+        wp_send_json_success([
+            'message' => 'Profile updated.',
+            'user' => [
+                'user_id' => $user_id,
+                'display_name' => $user->display_name ?: $user->user_login,
+                'email' => $user->user_email,
+                'bio' => $user->description ?: '',
+                'avatar' => get_user_meta($user_id, 'aicpp_avatar', true) ?: '',
+                'referral_code' => get_user_meta($user_id, 'aicpp_referral_code', true) ?: '',
+                'points' => (int) get_user_meta($user_id, 'aicpp_reward_points', true),
+            ]
+        ]);
     }
+
+    public function ajax_get_leaderboard() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        // FIX #6: Gate the leaderboard behind require_login so guests can't enumerate display names.
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Please sign in to view the leaderboard.']);
+        }
+        global $wpdb;
+
+        $rows = $wpdb->get_results("
+            SELECT u.ID, u.user_login, u.display_name,
+                   COALESCE(CAST(um.meta_value AS UNSIGNED), 0) AS points
+            FROM {$wpdb->users} u
+            LEFT JOIN {$wpdb->usermeta} um
+              ON um.user_id = u.ID AND um.meta_key = 'aicpp_reward_points'
+            ORDER BY points DESC, u.ID ASC
+            LIMIT 20
+        ");
+
+        $leaderboard = [];
+        foreach ($rows as $index => $row) {
+            $rank = $index + 1;
+            $badge = $rank === 1 ? 'Diamond' : ($rank <= 3 ? 'Platinum' : ($rank <= 5 ? 'Gold' : ($rank <= 10 ? 'Silver' : 'Bronze')));
+            $leaderboard[] = [
+                'rank' => $rank,
+                'user_id' => (int) $row->ID,
+                'username' => $row->display_name ?: $row->user_login,
+                'points' => (int) $row->points,
+                'badge' => $badge,
+                'avatar' => get_user_meta($row->ID, 'aicpp_avatar', true) ?: '',
+            ];
+        }
+
+        wp_send_json_success(['leaderboard' => $leaderboard]);
+    }
+
+    public function ajax_get_referral_data() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in.']);
+        global $wpdb;
+
+        $user_id = get_current_user_id();
+        $code = get_user_meta($user_id, 'aicpp_referral_code', true);
+
+        if (!$code) {
+            $code = strtoupper('VRS-' . $user_id . '-' . wp_generate_password(6, false, false));
+            update_user_meta($user_id, 'aicpp_referral_code', $code);
+        }
+
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$this->table_referrals} WHERE referrer_user_id = %d",
+            $user_id
+        ));
+
+        $points = (int) get_user_meta($user_id, 'aicpp_reward_points', true);
+
+        wp_send_json_success([
+            'referral_code' => $code,
+            'referral_link' => add_query_arg('ref', rawurlencode($code), home_url('/')),
+            'referred_count' => $count,
+            'points' => $points,
+        ]);
+    }
+
+    public function ajax_search_messages() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in.']);
+        global $wpdb;
+
+        $user_id = get_current_user_id();
+        $query = sanitize_text_field(wp_unslash($_POST['query'] ?? ''));
+
+        if (mb_strlen($query) < 2) {
+            wp_send_json_error(['message' => 'Search must be at least 2 characters.']);
+        }
+
+        $like = '%' . $wpdb->esc_like($query) . '%';
+
+        $results = $wpdb->get_results($wpdb->prepare(
+            "SELECT m.id, m.conversation_id, m.role, m.content, m.created_at, c.title
+             FROM {$this->table_messages} m
+             INNER JOIN {$this->table_conversations} c ON c.id = m.conversation_id
+             WHERE c.user_id = %d
+               AND (m.content LIKE %s OR m.raw_content LIKE %s)
+             ORDER BY m.id DESC
+             LIMIT 50",
+            $user_id, $like, $like
+        ), ARRAY_A);
+
+        wp_send_json_success(['results' => $results ?: []]);
+    }
+
+    public function ajax_pin_conversation() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in.']);
+        global $wpdb;
+
+        $user_id = get_current_user_id();
+        $conv_id = intval($_POST['conversation_id'] ?? 0);
+
+        $conv = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, user_id, pinned FROM {$this->table_conversations} WHERE id = %d",
+            $conv_id
+        ));
+
+        if (!$conv) wp_send_json_error(['message' => 'Conversation not found.']);
+        if ((int) $conv->user_id !== $user_id) wp_send_json_error(['message' => 'Access denied.']);
+
+        $next = isset($_POST['pinned']) ? intval($_POST['pinned']) : ((int) $conv->pinned ? 0 : 1);
+
+        $ok = $wpdb->update(
+            $this->table_conversations,
+            ['pinned' => $next],
+            ['id' => $conv_id, 'user_id' => $user_id],
+            ['%d'],
+            ['%d', '%d']
+        );
+
+        if ($ok === false) wp_send_json_error(['message' => 'Could not update pin state.']);
+
+        wp_send_json_success([
+            'conversation_id' => $conv_id,
+            'pinned' => (int) $next,
+        ]);
+    }
+
+    public function ajax_speak() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+
+        // FIX #6: Require login so unauthenticated bots can't burn the OpenAI TTS budget.
+        if (get_option('aicpp_require_login', '1') === '1' && !is_user_logged_in()) {
+            wp_send_json_error(['message' => 'Please sign in to use voice synthesis.']);
+        }
+
+        if (!$this->check_rate_limit('speak', 10, 300)) wp_send_json_error(['message' => 'Rate limit exceeded.']);
+
+        // Cap input length up front; 2500 chars maps to roughly <1MB of MP3 at OpenAI's bitrate.
+        $text = mb_substr(sanitize_textarea_field(wp_unslash($_POST['text'] ?? '')), 0, 2500);
+        $voice = sanitize_text_field(wp_unslash($_POST['voice'] ?? 'alloy'));
+
+        // FIX #6: Constrain voice to OpenAI's allowlist so we don't waste an API call on bad input.
+        $allowed_voices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+        if (!in_array($voice, $allowed_voices, true)) $voice = 'alloy';
+
+        if ($text === '') wp_send_json_error(['message' => 'Text is required.']);
+
+        $key = $this->get_api_key('openai');
+        if (!$key) wp_send_json_error(['message' => 'OpenAI API key required for speech.']);
+
+        $response = wp_remote_post('https://api.openai.com/v1/audio/speech', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $key,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode([
+                'model' => 'gpt-4o-mini-tts',
+                'voice' => $voice,
+                'input' => $text,
+                'response_format' => 'mp3',
+            ]),
+            'timeout' => 60,
+        ]);
+
+        if (is_wp_error($response)) wp_send_json_error(['message' => $response->get_error_message()]);
+
+        $code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+
+        if ($code >= 300 || empty($body)) {
+            wp_send_json_error(['message' => 'TTS failed.']);
+        }
+
+        // Hard cap audio response at 5MB to avoid memory blow-ups on huge synthesis.
+        if (strlen($body) > 5 * 1024 * 1024) {
+            wp_send_json_error(['message' => 'Generated audio is too large.']);
+        }
+
+        wp_send_json_success([
+            'audio' => 'data:audio/mpeg;base64,' . base64_encode($body),
+        ]);
+    }
+
+
+    // =========================================================
+    // FEATURE 2: PERSISTENT MEMORY
+    // =========================================================
+    private function get_user_memory_block($user_id, $persona_id = 0) {
+        $user_id = (int) $user_id;
+        if (!$user_id) return '';
+        global $wpdb;
+        $rows = $wpdb->get_col($wpdb->prepare(
+            "SELECT memory_text FROM {$this->table_memories} WHERE user_id = %d AND enabled = 1 AND (persona_id = 0 OR persona_id = %d) ORDER BY id ASC LIMIT 50",
+            $user_id, (int) $persona_id
+        ));
+        if (empty($rows)) return '';
+        $lines = [];
+        foreach ($rows as $r) {
+            $r = trim(wp_strip_all_tags((string) $r));
+            if ($r !== '') $lines[] = '- ' . $r;
+        }
+        return implode("\n", $lines);
+    }
+
+    public function page_memory() {
+        if (!current_user_can('manage_options')) wp_die('Access denied');
+        global $wpdb;
+        $personas = $wpdb->get_results("SELECT id, name FROM {$this->table_personas} ORDER BY name ASC");
+        ?>
+        <div class="wrap aicpp-wrap">
+            <h1>🧩 Persistent Memory</h1>
+            <div class="aicpp-info">
+                <strong>What this does:</strong> Each user has a small list of facts the AI remembers across all their conversations (e.g. "prefers Python", "lives in Lisbon"). Lines are injected into the system prompt under <code>## WHAT YOU REMEMBER ABOUT THE USER</code>. Memories can be global (apply to every persona) or scoped to a single persona.
+            </div>
+            <div class="aicpp-card">
+                <h2>Find user</h2>
+                <div class="aicpp-user-search">
+                    <input type="text" id="mem-user-search" placeholder="Search by username, email, or display name...">
+                    <button type="button" onclick="aicppMemSearchUsers()">🔍 Search</button>
+                </div>
+                <div id="mem-user-results" class="aicpp-user-results" style="display:none"></div>
+            </div>
+            <div class="aicpp-card" id="mem-editor" style="display:none">
+                <h2>Memories for <span id="mem-target-name"></span></h2>
+                <input type="hidden" id="mem-target-uid" value="">
+                <p>
+                    <label>Scope:
+                        <select id="mem-scope">
+                            <option value="0">Global (all personas)</option>
+                            <?php foreach ($personas as $p): ?>
+                                <option value="<?php echo (int) $p->id; ?>"><?php echo esc_html($p->name); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </p>
+                <p>
+                    <input type="text" id="mem-text" class="regular-text" maxlength="500" placeholder="e.g. Prefers concise answers in Portuguese" style="width:60%">
+                    <button type="button" class="button button-primary" onclick="aicppMemAdd()">➕ Add memory</button>
+                </p>
+                <div id="mem-list"><div class="aicpp-empty">Loading…</div></div>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+            var nonce   = <?php echo wp_json_encode(wp_create_nonce('aicpp')); ?>;
+            function esc(t){ var d=document.createElement('div'); d.textContent=t==null?'':t; return d.innerHTML; }
+            window.aicppMemSearchUsers = function(){
+                var q = document.getElementById('mem-user-search').value.trim();
+                if (q.length < 2) { alert('Enter at least 2 characters'); return; }
+                var fd = new FormData(); fd.append('action','aicpp_search_users'); fd.append('nonce',nonce); fd.append('query',q);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    var c = document.getElementById('mem-user-results'); c.style.display='block';
+                    if (d.success && d.data.users.length){
+                        c.innerHTML = d.data.users.map(u =>
+                            '<div class="aicpp-user-row"><div class="user-info"><span class="user-name">'+esc(u.display_name)+'</span><span class="user-email">'+esc(u.user_email)+'</span></div>'+
+                            '<button type="button" class="btn-assign" onclick="aicppMemPick('+u.ID+', \''+esc(u.display_name||u.user_login).replace(/\'/g,"\\\\'")+'\')">Edit memories</button></div>'
+                        ).join('');
+                    } else c.innerHTML = '<div class="aicpp-empty">No users found</div>';
+                });
+            };
+            window.aicppMemPick = function(uid, name){
+                document.getElementById('mem-editor').style.display='block';
+                document.getElementById('mem-target-uid').value = uid;
+                document.getElementById('mem-target-name').textContent = name;
+                aicppMemReload();
+            };
+            function aicppMemReload(){
+                var uid = document.getElementById('mem-target-uid').value;
+                var fd = new FormData(); fd.append('action','aicpp_get_memories'); fd.append('nonce',nonce); fd.append('user_id',uid);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    var box = document.getElementById('mem-list');
+                    if (!d.success || !d.data.memories.length){ box.innerHTML='<div class="aicpp-empty">No memories yet</div>'; return; }
+                    box.innerHTML = '<div class="aicpp-user-results">' + d.data.memories.map(m =>
+                        '<div class="aicpp-user-row"><div class="user-info">'+
+                        '<span class="user-name">'+(m.enabled==1?'':'(disabled) ')+esc(m.memory_text)+'</span>'+
+                        '<span class="user-email">Scope: '+(parseInt(m.persona_id)===0?'Global':'Persona #'+m.persona_id)+'</span></div>'+
+                        '<div><button class="aicpp-convo-btn" onclick="aicppMemToggle('+m.id+')">'+(m.enabled==1?'Disable':'Enable')+'</button> '+
+                        '<button class="btn-remove" onclick="aicppMemDel('+m.id+')">Delete</button></div></div>'
+                    ).join('') + '</div>';
+                });
+            }
+            window.aicppMemAdd = function(){
+                var uid = document.getElementById('mem-target-uid').value;
+                var scope = document.getElementById('mem-scope').value;
+                var text = document.getElementById('mem-text').value.trim();
+                if (!uid || !text) return;
+                var fd = new FormData(); fd.append('action','aicpp_add_memory'); fd.append('nonce',nonce);
+                fd.append('user_id',uid); fd.append('persona_id',scope); fd.append('memory_text',text);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    if (d.success){ document.getElementById('mem-text').value=''; aicppMemReload(); } else alert(d.data && d.data.message || 'Error');
+                });
+            };
+            window.aicppMemDel = function(id){
+                if (!confirm('Delete this memory?')) return;
+                var fd = new FormData(); fd.append('action','aicpp_delete_memory'); fd.append('nonce',nonce); fd.append('memory_id',id);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.success) aicppMemReload(); });
+            };
+            window.aicppMemToggle = function(id){
+                var fd = new FormData(); fd.append('action','aicpp_toggle_memory'); fd.append('nonce',nonce); fd.append('memory_id',id);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.success) aicppMemReload(); });
+            };
+        })();
+        </script>
+        <?php
+    }
+
+    public function ajax_get_memories() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $uid = intval($_POST['user_id'] ?? 0);
+        if ($uid <= 0) wp_send_json_error(['message' => 'Invalid user']);
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, persona_id, memory_text, enabled FROM {$this->table_memories} WHERE user_id = %d ORDER BY id ASC",
+            $uid
+        ));
+        wp_send_json_success(['memories' => $rows ?: []]);
+    }
+    public function ajax_add_memory() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $uid = intval($_POST['user_id'] ?? 0);
+        $pid = intval($_POST['persona_id'] ?? 0);
+        $text = mb_substr(sanitize_text_field(wp_unslash($_POST['memory_text'] ?? '')), 0, 500);
+        if (!$uid || $text === '') wp_send_json_error(['message' => 'Missing data']);
+        $ok = $wpdb->insert($this->table_memories, [
+            'user_id' => $uid, 'persona_id' => $pid, 'memory_text' => $text, 'enabled' => 1,
+        ], ['%d','%d','%s','%d']);
+        if ($ok === false) wp_send_json_error(['message' => 'DB error']);
+        wp_send_json_success(['id' => $wpdb->insert_id]);
+    }
+    public function ajax_update_memory() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['memory_id'] ?? 0);
+        $text = mb_substr(sanitize_text_field(wp_unslash($_POST['memory_text'] ?? '')), 0, 500);
+        if (!$id || $text === '') wp_send_json_error(['message' => 'Missing data']);
+        $wpdb->update($this->table_memories, ['memory_text' => $text], ['id' => $id], ['%s'], ['%d']);
+        wp_send_json_success();
+    }
+    public function ajax_delete_memory() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['memory_id'] ?? 0);
+        $wpdb->delete($this->table_memories, ['id' => $id], ['%d']);
+        wp_send_json_success();
+    }
+    public function ajax_toggle_memory() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['memory_id'] ?? 0);
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$this->table_memories} SET enabled = 1 - enabled WHERE id = %d", $id
+        ));
+        wp_send_json_success();
+    }
+
+    // =========================================================
+    // FEATURE 3: PROJECTS
+    // =========================================================
+    private function get_project_context_block($conv_id) {
+        $conv_id = (int) $conv_id;
+        if (!$conv_id) return '';
+        global $wpdb;
+        $project_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT project_id FROM {$this->table_conversations} WHERE id = %d", $conv_id
+        ));
+        if ($project_id <= 0) return '';
+        $proj = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$this->table_projects} WHERE id = %d", $project_id
+        ));
+        if (!$proj) return '';
+        $out = "Project: {$proj->name}";
+        if (!empty(trim((string) $proj->description))) $out .= "\nDescription: " . trim($proj->description);
+        if (!empty(trim((string) $proj->custom_instructions))) {
+            $out .= "\n\nCustom instructions for this project:\n" . trim($proj->custom_instructions);
+        }
+        $files = $wpdb->get_results($wpdb->prepare(
+            "SELECT file_name, content_excerpt FROM {$this->table_project_files} WHERE project_id = %d ORDER BY id ASC LIMIT 20",
+            $project_id
+        ));
+        if ($files) {
+            $out .= "\n\nKnowledge base files (excerpts):";
+            foreach ($files as $f) {
+                $excerpt = trim((string) $f->content_excerpt);
+                if ($excerpt === '') continue;
+                $out .= "\n\n--- " . $f->file_name . " ---\n" . mb_substr($excerpt, 0, 4000);
+            }
+        }
+        return mb_substr($out, 0, 50000);
+    }
+
+    public function page_projects() {
+        if (!current_user_can('manage_options')) wp_die('Access denied');
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $projects = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$this->table_projects} WHERE user_id = %d ORDER BY id DESC", $user_id
+        ));
+        ?>
+        <div class="wrap aicpp-wrap">
+            <h1>📁 Projects</h1>
+            <div class="aicpp-info">
+                <strong>What this does:</strong> Group conversations into a project that shares a knowledge base (uploaded text/markdown excerpts) and custom instructions. Every chat assigned to the project sees them automatically under <code>## PROJECT CONTEXT</code>.
+            </div>
+            <div class="aicpp-card">
+                <h2>Create a project</h2>
+                <p><input type="text" id="prj-name" class="regular-text" placeholder="Project name" style="width:40%"></p>
+                <p><textarea id="prj-desc" rows="2" class="large-text" placeholder="Short description"></textarea></p>
+                <p><textarea id="prj-instr" rows="4" class="large-text" placeholder="Custom instructions for this project (e.g. 'Always answer in TypeScript', 'Use the brand voice from the file')"></textarea></p>
+                <p><button class="button button-primary" onclick="aicppPrjCreate()">➕ Create project</button></p>
+            </div>
+            <div class="aicpp-personas">
+                <?php foreach ($projects as $p): ?>
+                    <div class="aicpp-pcard" data-pid="<?php echo (int)$p->id; ?>">
+                        <h3 style="margin:0"><?php echo esc_html($p->name); ?></h3>
+                        <p style="color:#666;font-size:13px"><?php echo esc_html($p->description); ?></p>
+                        <p style="font-size:12px;color:#888">Custom instructions: <?php echo esc_html(mb_substr($p->custom_instructions, 0, 120)); ?>…</p>
+                        <p>
+                            <button class="button" onclick="aicppPrjFiles(<?php echo (int)$p->id; ?>, '<?php echo esc_js($p->name); ?>')">📎 Knowledge files</button>
+                            <button class="button" onclick="aicppPrjDelete(<?php echo (int)$p->id; ?>)" style="color:#c92a2a">🗑 Delete</button>
+                        </p>
+                        <div class="aicpp-prj-files" id="prj-files-<?php echo (int)$p->id; ?>" style="display:none">
+                            <h4>Knowledge files</h4>
+                            <p>
+                                <input type="text" placeholder="File name (e.g. brand-guide.md)" id="prj-fname-<?php echo (int)$p->id; ?>" style="width:40%">
+                                <textarea rows="4" class="large-text" placeholder="Paste excerpt content (max 60000 chars)" id="prj-fcontent-<?php echo (int)$p->id; ?>"></textarea>
+                                <button class="button button-primary" onclick="aicppPrjAttach(<?php echo (int)$p->id; ?>)">Attach</button>
+                            </p>
+                            <div id="prj-flist-<?php echo (int)$p->id; ?>"></div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <script>
+        (function(){
+            var ajaxurl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
+            var nonce   = <?php echo wp_json_encode(wp_create_nonce('aicpp')); ?>;
+            function esc(t){ var d=document.createElement('div'); d.textContent=t==null?'':t; return d.innerHTML; }
+            window.aicppPrjCreate = function(){
+                var fd = new FormData(); fd.append('action','aicpp_create_project'); fd.append('nonce',nonce);
+                fd.append('name', document.getElementById('prj-name').value);
+                fd.append('description', document.getElementById('prj-desc').value);
+                fd.append('custom_instructions', document.getElementById('prj-instr').value);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    if (d.success) location.reload(); else alert(d.data.message||'Error');
+                });
+            };
+            window.aicppPrjDelete = function(id){
+                if (!confirm('Delete project? Conversations stay but lose project context.')) return;
+                var fd = new FormData(); fd.append('action','aicpp_delete_project'); fd.append('nonce',nonce); fd.append('project_id',id);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.success) location.reload(); });
+            };
+            window.aicppPrjFiles = function(id, name){
+                var box = document.getElementById('prj-files-'+id);
+                box.style.display = (box.style.display==='none')?'block':'none';
+                if (box.style.display==='block') aicppPrjReloadFiles(id);
+            };
+            function aicppPrjReloadFiles(id){
+                var fd = new FormData(); fd.append('action','aicpp_get_projects'); fd.append('nonce',nonce); fd.append('project_id',id);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    if (!d.success) return;
+                    var list = (d.data.files || []);
+                    var box = document.getElementById('prj-flist-'+id);
+                    box.innerHTML = list.length ? list.map(f =>
+                        '<div class="aicpp-user-row"><span class="user-name">'+esc(f.file_name)+'</span>'+
+                        '<button class="btn-remove" onclick="aicppPrjDetach('+f.id+','+id+')">Remove</button></div>'
+                    ).join('') : '<div class="aicpp-empty">No files</div>';
+                });
+            }
+            window.aicppPrjAttach = function(id){
+                var fd = new FormData(); fd.append('action','aicpp_attach_project_file'); fd.append('nonce',nonce);
+                fd.append('project_id', id);
+                fd.append('file_name', document.getElementById('prj-fname-'+id).value);
+                fd.append('content_excerpt', document.getElementById('prj-fcontent-'+id).value);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
+                    if (d.success){
+                        document.getElementById('prj-fname-'+id).value='';
+                        document.getElementById('prj-fcontent-'+id).value='';
+                        aicppPrjReloadFiles(id);
+                    } else alert(d.data.message||'Error');
+                });
+            };
+            window.aicppPrjDetach = function(fileId, projectId){
+                if (!confirm('Detach this file?')) return;
+                var fd = new FormData(); fd.append('action','aicpp_detach_project_file'); fd.append('nonce',nonce); fd.append('file_id',fileId);
+                fetch(ajaxurl,{method:'POST',body:fd}).then(r=>r.json()).then(d=>{ if(d.success) aicppPrjReloadFiles(projectId); });
+            };
+        })();
+        </script>
+        <?php
+    }
+
+    public function ajax_get_projects() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $project_id = intval($_POST['project_id'] ?? 0);
+        if ($project_id > 0) {
+            $files = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, file_name, file_type FROM {$this->table_project_files} WHERE project_id = %d ORDER BY id ASC",
+                $project_id
+            ));
+            wp_send_json_success(['files' => $files ?: []]);
+        }
+        $user_id = get_current_user_id();
+        $projects = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, name, description FROM {$this->table_projects} WHERE user_id = %d ORDER BY id DESC", $user_id
+        ));
+        wp_send_json_success(['projects' => $projects ?: []]);
+    }
+    public function ajax_create_project() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+        if ($name === '') wp_send_json_error(['message' => 'Name required']);
+        $wpdb->insert($this->table_projects, [
+            'user_id' => get_current_user_id(),
+            'name' => $name,
+            'description' => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
+            'custom_instructions' => mb_substr((string) wp_unslash($_POST['custom_instructions'] ?? ''), 0, 50000),
+            'color' => '#667eea',
+        ], ['%d','%s','%s','%s','%s']);
+        wp_send_json_success(['id' => $wpdb->insert_id]);
+    }
+    public function ajax_update_project() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['project_id'] ?? 0);
+        if (!$id) wp_send_json_error(['message' => 'Invalid id']);
+        $wpdb->update($this->table_projects, [
+            'name' => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
+            'description' => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
+            'custom_instructions' => mb_substr((string) wp_unslash($_POST['custom_instructions'] ?? ''), 0, 50000),
+        ], ['id' => $id], ['%s','%s','%s'], ['%d']);
+        wp_send_json_success();
+    }
+    public function ajax_delete_project() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['project_id'] ?? 0);
+        $wpdb->delete($this->table_project_files, ['project_id' => $id], ['%d']);
+        $wpdb->delete($this->table_projects, ['id' => $id], ['%d']);
+        $wpdb->update($this->table_conversations, ['project_id' => 0], ['project_id' => $id], ['%d'], ['%d']);
+        wp_send_json_success();
+    }
+    public function ajax_attach_project_file() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $pid = intval($_POST['project_id'] ?? 0);
+        $fname = sanitize_text_field(wp_unslash($_POST['file_name'] ?? ''));
+        $content = mb_substr((string) wp_unslash($_POST['content_excerpt'] ?? ''), 0, 60000);
+        if (!$pid || $fname === '') wp_send_json_error(['message' => 'Missing data']);
+        $wpdb->insert($this->table_project_files, [
+            'project_id' => $pid,
+            'file_name' => $fname,
+            'file_url' => esc_url_raw(wp_unslash($_POST['file_url'] ?? '')),
+            'file_type' => sanitize_text_field(wp_unslash($_POST['file_type'] ?? 'text/plain')),
+            'content_excerpt' => $content,
+        ], ['%d','%s','%s','%s','%s']);
+        wp_send_json_success(['id' => $wpdb->insert_id]);
+    }
+    public function ajax_detach_project_file() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Denied']);
+        global $wpdb;
+        $id = intval($_POST['file_id'] ?? 0);
+        $wpdb->delete($this->table_project_files, ['id' => $id], ['%d']);
+        wp_send_json_success();
+    }
+    public function ajax_assign_conversation_project() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in.']);
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $conv_id = intval($_POST['conversation_id'] ?? 0);
+        $project_id = intval($_POST['project_id'] ?? 0);
+        $conv = $wpdb->get_row($wpdb->prepare("SELECT id, user_id FROM {$this->table_conversations} WHERE id = %d", $conv_id));
+        if (!$conv || (int)$conv->user_id !== $user_id) wp_send_json_error(['message' => 'Access denied']);
+        if ($project_id > 0) {
+            $owner = (int) $wpdb->get_var($wpdb->prepare("SELECT user_id FROM {$this->table_projects} WHERE id = %d", $project_id));
+            if ($owner !== $user_id && !current_user_can('manage_options')) wp_send_json_error(['message' => 'Project not yours']);
+        }
+        $wpdb->update($this->table_conversations, ['project_id' => $project_id], ['id' => $conv_id], ['%d'], ['%d']);
+        wp_send_json_success();
+    }
+
+    // =========================================================
+    // FEATURE 4: ARTIFACTS / CANVAS
+    // =========================================================
+    /**
+     * Upgrade F: pull <remember>...</remember> tags out of a reply, save them,
+     * and return the reply with those tags removed so the user never sees them.
+     */
+    private function extract_and_save_memories($reply, $user_id, $persona_id = 0) {
+        $user_id = (int) $user_id;
+        if (!$user_id || empty($reply)) return (string) $reply;
+        $reply = (string) $reply;
+        if (preg_match_all('#<remember>(.+?)</remember>#is', $reply, $m)) {
+            global $wpdb;
+            foreach ($m[1] as $fact) {
+                $fact = mb_substr(trim(wp_strip_all_tags($fact)), 0, 500);
+                if ($fact === '') continue;
+                // Avoid duplicates for the same user.
+                $exists = (int) $wpdb->get_var($wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$this->table_memories} WHERE user_id = %d AND memory_text = %s",
+                    $user_id, $fact
+                ));
+                if ($exists) continue;
+                $wpdb->insert($this->table_memories, [
+                    'user_id'     => $user_id,
+                    'persona_id'  => (int) $persona_id,
+                    'memory_text' => $fact,
+                    'enabled'     => 1,
+                ], ['%d', '%d', '%s', '%d']);
+            }
+            // Strip the tags from the visible reply.
+            $reply = preg_replace('#\s*<remember>.+?</remember>\s*#is', '', $reply);
+        }
+        return $reply;
+    }
+
+    private function extract_and_save_artifacts($reply, $conv_id, $user_id) {
+        if (empty($reply) || !$conv_id) return;
+        $reply = (string) $reply;
+        if (preg_match_all('#<artifact\s+type="([a-zA-Z0-9_-]+)"(?:\s+title="([^"]*)")?>(.+?)</artifact>#is', $reply, $m, PREG_SET_ORDER)) {
+            global $wpdb;
+            foreach ($m as $hit) {
+                $type = strtolower(sanitize_key($hit[1]));
+                $title = isset($hit[2]) ? sanitize_text_field($hit[2]) : 'Artifact';
+                $content = trim($hit[3]);
+                if ($content === '') continue;
+                $allowed_types = ['html','css','js','svg','markdown','code','react'];
+                if (!in_array($type, $allowed_types, true)) $type = 'code';
+                $wpdb->insert($this->table_artifacts, [
+                    'conversation_id' => (int) $conv_id,
+                    'user_id'         => (int) $user_id,
+                    'title'           => mb_substr($title, 0, 255),
+                    'artifact_type'   => $type,
+                    'content'         => mb_substr($content, 0, 500000),
+                    'version'         => 1,
+                ], ['%d','%d','%s','%s','%s','%d']);
+            }
+        }
+    }
+
+    public function page_artifacts() {
+        if (!current_user_can('manage_options')) wp_die('Access denied');
+        global $wpdb;
+        $rows = $wpdb->get_results("SELECT a.*, c.title AS conv_title FROM {$this->table_artifacts} a LEFT JOIN {$this->table_conversations} c ON a.conversation_id = c.id ORDER BY a.id DESC LIMIT 200");
+        ?>
+        <div class="wrap aicpp-wrap">
+            <h1>🧱 Artifacts</h1>
+            <div class="aicpp-info">
+                Artifacts are auto-extracted from any AI reply that contains <code>&lt;artifact type="..."&gt;...&lt;/artifact&gt;</code>. The frontend renders each artifact in a side panel with Preview / Edit tabs.
+            </div>
+            <div class="aicpp-personas">
+                <?php foreach ($rows as $a): ?>
+                    <div class="aicpp-pcard">
+                        <h3 style="margin:0"><?php echo esc_html($a->title ?: 'Untitled'); ?> <span class="aicpp-badge"><?php echo esc_html($a->artifact_type); ?></span></h3>
+                        <p style="color:#888;font-size:12px">From: <?php echo esc_html($a->conv_title ?: '#' . $a->conversation_id); ?> · v<?php echo (int)$a->version; ?> · <?php echo esc_html($a->updated_at); ?></p>
+                        <pre style="max-height:180px;overflow:auto;background:#1e1e1e;color:#50fa7b;padding:10px;border-radius:6px;font-size:11px"><?php echo esc_html(mb_substr($a->content, 0, 1500)); ?></pre>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    public function ajax_save_artifact() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in']);
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $id      = intval($_POST['artifact_id'] ?? 0);
+        $type    = sanitize_key($_POST['artifact_type'] ?? 'code');
+        $title   = sanitize_text_field(wp_unslash($_POST['title'] ?? 'Artifact'));
+        $content = mb_substr((string) wp_unslash($_POST['content'] ?? ''), 0, 500000);
+        $conv_id = intval($_POST['conversation_id'] ?? 0);
+        $allowed = ['html','css','js','svg','markdown','code','react'];
+        if (!in_array($type, $allowed, true)) $type = 'code';
+        if ($id > 0) {
+            $owner = (int) $wpdb->get_var($wpdb->prepare("SELECT user_id FROM {$this->table_artifacts} WHERE id = %d", $id));
+            if ($owner !== $user_id && !current_user_can('manage_options')) wp_send_json_error(['message' => 'Access denied']);
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$this->table_artifacts} SET title=%s, artifact_type=%s, content=%s, version=version+1, updated_at=%s WHERE id=%d",
+                $title, $type, $content, current_time('mysql'), $id
+            ));
+            wp_send_json_success(['id' => $id]);
+        }
+        $wpdb->insert($this->table_artifacts, [
+            'conversation_id' => $conv_id,
+            'user_id'         => $user_id,
+            'title'           => $title,
+            'artifact_type'   => $type,
+            'content'         => $content,
+            'version'         => 1,
+        ], ['%d','%d','%s','%s','%s','%d']);
+        wp_send_json_success(['id' => $wpdb->insert_id]);
+    }
+    public function ajax_get_artifact() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in']);
+        global $wpdb;
+        $id = intval($_POST['artifact_id'] ?? 0);
+        $a = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$this->table_artifacts} WHERE id = %d", $id), ARRAY_A);
+        if (!$a) wp_send_json_error(['message' => 'Not found']);
+        if ((int)$a['user_id'] !== get_current_user_id() && !current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Access denied']);
+        }
+        wp_send_json_success($a);
+    }
+    public function ajax_list_artifacts() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in']);
+        global $wpdb;
+        $conv_id = intval($_POST['conversation_id'] ?? 0);
+        $user_id = get_current_user_id();
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, title, artifact_type, version, updated_at FROM {$this->table_artifacts} WHERE conversation_id = %d AND user_id = %d ORDER BY id DESC",
+            $conv_id, $user_id
+        ));
+        wp_send_json_success(['artifacts' => $rows ?: []]);
+    }
+    public function ajax_delete_artifact() {
+        check_ajax_referer('aicpp_chat', 'nonce');
+        if (!is_user_logged_in()) wp_send_json_error(['message' => 'Please sign in']);
+        global $wpdb;
+        $id = intval($_POST['artifact_id'] ?? 0);
+        $owner = (int) $wpdb->get_var($wpdb->prepare("SELECT user_id FROM {$this->table_artifacts} WHERE id = %d", $id));
+        if ($owner !== get_current_user_id() && !current_user_can('manage_options')) wp_send_json_error(['message' => 'Access denied']);
+        $wpdb->delete($this->table_artifacts, ['id' => $id], ['%d']);
+        wp_send_json_success();
+    }
+
+    // =========================================================
+    // FEATURE 6: OPENROUTER FREE MODEL PRESETS
+    // =========================================================
+    private function aicpp_or_default_free_models() {
+        return [
+            'openrouter/tencent/hy3-preview:free' => 'Tencent: Hy3 Preview (free)',
+            'openrouter/nvidia/nemotron-3-super-120b-a12b:free' => 'NVIDIA: Nemotron 3 Super 120B (free)',
+            'openrouter/nvidia/nemotron-3-nano-30b-a3b:free' => 'NVIDIA: Nemotron 3 Nano 30B (free)',
+            'openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free' => 'NVIDIA: Nemotron 3 Nano Omni 30B (free)',
+            'openrouter/nvidia/nemotron-nano-12b-v2-vl:free' => 'NVIDIA: Nemotron Nano 12B VL (free)',
+            'openrouter/nvidia/nemotron-nano-9b-v2:free' => 'NVIDIA: Nemotron Nano 9B V2 (free)',
+            'openrouter/inclusionai/ling-2.6-1t:free' => 'inclusionAI: Ling-2.6-1T (free)',
+            'openrouter/openai/gpt-oss-120b:free' => 'OpenAI: gpt-oss-120b (free)',
+            'openrouter/openai/gpt-oss-20b:free' => 'OpenAI: gpt-oss-20b (free)',
+            'openrouter/minimax/minimax-m2.5:free' => 'MiniMax: M2.5 (free)',
+            'openrouter/z-ai/glm-4.5-air:free' => 'Z.ai: GLM 4.5 Air (free)',
+            'openrouter/qwen/qwen3-next-80b-a3b-instruct:free' => 'Qwen3 Next 80B A3B Instruct (free)',
+            'openrouter/qwen/qwen3-coder:free' => 'Qwen3 Coder 480B (free)',
+            'openrouter/google/gemma-4-26b-a4b-it:free' => 'Google: Gemma 4 26B A4B (free)',
+            'openrouter/google/gemma-4-31b-it:free' => 'Google: Gemma 4 31B (free)',
+            'openrouter/google/gemma-3-27b-it:free' => 'Google: Gemma 3 27B (free)',
+            'openrouter/google/gemma-3-12b-it:free' => 'Google: Gemma 3 12B (free)',
+            'openrouter/google/gemma-3-4b-it:free' => 'Google: Gemma 3 4B (free)',
+            'openrouter/google/gemma-3n-e4b-it:free' => 'Google: Gemma 3n E4B (free)',
+            'openrouter/google/gemma-3n-e2b-it:free' => 'Google: Gemma 3n E2B (free)',
+            'openrouter/poolside/laguna-xs.2:free' => 'Poolside: Laguna XS.2 (free)',
+            'openrouter/poolside/laguna-m.1:free' => 'Poolside: Laguna M.1 (free)',
+            'openrouter/baidu/qianfan-ocr-fast:free' => 'Baidu: Qianfan OCR Fast (free)',
+            'openrouter/meta-llama/llama-3.3-70b-instruct:free' => 'Meta: Llama 3.3 70B (free)',
+            'openrouter/meta-llama/llama-3.2-3b-instruct:free' => 'Meta: Llama 3.2 3B (free)',
+            'openrouter/nousresearch/hermes-3-llama-3.1-405b:free' => 'Nous: Hermes 3 Llama 3.1 405B (free)',
+            'openrouter/liquid/lfm-2.5-1.2b-thinking:free' => 'LiquidAI: LFM 2.5 1.2B Thinking (free)',
+            'openrouter/liquid/lfm-2.5-1.2b-instruct:free' => 'LiquidAI: LFM 2.5 1.2B Instruct (free)',
+            'openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free' => 'Venice: Uncensored (free)',
+            'openrouter/openrouter/free' => 'OpenRouter: Free Auto Router',
+        ];
+    }
+
+    public function ajax_or_free_models() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        $cached = get_transient('aicpp_or_free_models_cache');
+        if (empty($cached)) $cached = get_option('aicpp_or_free_models_cache', '');
+        if (!empty($cached)) {
+            $list = is_array($cached) ? $cached : json_decode($cached, true);
+            if (is_array($list) && !empty($list)) wp_send_json_success(['models' => $list]);
+        }
+        wp_send_json_success(['models' => $this->aicpp_or_default_free_models()]);
+    }
+    public function ajax_or_refresh_free() {
+        check_ajax_referer('aicpp', 'nonce');
+        if (!current_user_can('manage_options')) wp_send_json_error(['message' => 'Forbidden'], 403);
+        $r = wp_remote_get('https://openrouter.ai/api/v1/models', ['timeout' => 30]);
+        if (is_wp_error($r)) wp_send_json_error(['message' => $r->get_error_message()]);
+        $b = json_decode(wp_remote_retrieve_body($r), true);
+        if (empty($b['data']) || !is_array($b['data'])) wp_send_json_error(['message' => 'Unexpected response']);
+        $list = [];
+        foreach ($b['data'] as $m) {
+            $id = $m['id'] ?? '';
+            if (!$id) continue;
+            $is_free = false;
+            if (substr($id, -5) === ':free') $is_free = true;
+            if (!$is_free && isset($m['pricing']['prompt']) && (float)$m['pricing']['prompt'] === 0.0
+                && isset($m['pricing']['completion']) && (float)$m['pricing']['completion'] === 0.0) $is_free = true;
+            if (!$is_free) continue;
+            $key = 'openrouter/' . $id;
+            $list[$key] = $m['name'] ?? $id;
+        }
+        if (empty($list)) wp_send_json_error(['message' => 'No free models returned']);
+        update_option('aicpp_or_free_models_cache', wp_json_encode($list), false);
+        set_transient('aicpp_or_free_models_cache', $list, 12 * HOUR_IN_SECONDS);
+        wp_send_json_success(['models' => $list, 'count' => count($list)]);
+    }
+
 }
 
 AI_Chat_Persona_Pro_Ultimate::get_instance();
