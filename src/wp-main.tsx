@@ -6,7 +6,7 @@
  */
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -58,13 +58,13 @@ const WPApp = () => (
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <BrowserRouter>
+            <MemoryRouter initialEntries={["/"]}>
               <Routes>
                 <Route path="/auth" element={<AuthRoute><Auth /></AuthRoute>} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/" element={<WPProtectedRoute><Index /></WPProtectedRoute>} />
               </Routes>
-            </BrowserRouter>
+            </MemoryRouter>
           </TooltipProvider>
         </AuthProvider>
       </WPAuthProvider>
@@ -84,6 +84,7 @@ function aicppFindMount(): HTMLElement | null {
   return (
     document.getElementById("versace22-chat-root") ||
     document.querySelector<HTMLElement>('[id^="aicpp-standalone-root-"]') ||
+    document.getElementById("shortcode-shine-root") ||
     document.getElementById("root")
   );
 }
