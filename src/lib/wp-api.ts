@@ -480,7 +480,13 @@ async function wpFetch(action: string, fields: Record<string, string | Blob | nu
 
   // v12: resolve nonce from the manifest when possible
   const nonceFromManifest = resolveNonceForAction(action);
+  // Per-action nonce fallback so login/register hit the right nonce group
+  // even when the bridge didn't ship an endpoint manifest (older bridge).
+  let actionFallbackNonce = '';
+  if (action === 'aicpp_login_user') actionFallbackNonce = config.loginNonce || '';
+  else if (action === 'aicpp_register_user') actionFallbackNonce = config.registerNonce || '';
   const nonce = nonceFromManifest
+    || actionFallbackNonce
     || (useAdminNonce ? (config.adminNonce || config.nonce) : config.nonce);
 
   const formData = new FormData();
