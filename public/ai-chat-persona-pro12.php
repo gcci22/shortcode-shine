@@ -11,9 +11,17 @@ if (!defined('AI_CHAT_PERSONA_PRO_VERSION')) {
  * Author: AI Pipeline Pro
  */
 if (!defined('ABSPATH')) exit;
-// MISS I: hard guard against duplicate plugin copies (e.g. /public/ and /wordpress-assets/
-// both deployed) — without this, a second include yields a fatal "Cannot redeclare class".
-if (class_exists('AI_Chat_Persona_Pro_Ultimate')) { return; }
+// Self-protecting duplicate-load guard (Report Part 1C):
+// If a second copy of this plugin file is ever loaded, skip it gracefully
+// instead of fatal-erroring with "Cannot redeclare class".
+if (class_exists('AI_Chat_Persona_Pro_Ultimate')) {
+    add_action('admin_notices', function () {
+        echo '<div class="notice notice-error"><p><strong>AI Chat Persona Pro:</strong> '
+           . 'A second copy of this plugin was detected and skipped to prevent a fatal '
+           . 'class redeclaration. Keep exactly ONE copy in wp-content/plugins/.</p></div>';
+    });
+    return;
+}
 // VERSACE22 INTEGRATION: Soft-load bridge to prevent fatal on missing dependency
 $versace22_bridge_path = plugin_dir_path(__FILE__) . 'versace22-enqueue.php';
 if (file_exists($versace22_bridge_path)) {
@@ -78,6 +86,9 @@ class AI_Chat_Persona_Pro_Ultimate {
         add_action('admin_menu', [$this, 'add_admin_menus']);
         add_action('admin_head', [$this, 'admin_styles']);
         add_action('admin_init', [$this, 'check_db_upgrade']);
+
+        // Report Part 3A: self-describing, self-healing REST contract endpoint.
+        add_action('rest_api_init', [$this, 'register_contract_route']);
 
         // Admin AJAX
         add_action('wp_ajax_aicpp_save_persona', [$this, 'ajax_save_persona']);
@@ -146,6 +157,51 @@ class AI_Chat_Persona_Pro_Ultimate {
         if (function_exists('versace22_register_endpoints')) {
             versace22_register_endpoints($this->get_endpoint_manifest());
         }
+    }
+
+    /**
+     * Report Part 3A: expose the live endpoint manifest + freshly-minted
+     * nonces + capability map so the UI can self-heal expired nonces and
+     * detect contract drift without a full page reload.
+     */
+    public function register_contract_route() {
+        register_rest_route('aicpp/v1', '/contract', [
+            'methods'  => 'GET',
+            'permission_callback' => '__return_true',
+            'callback' => function () {
+                $manifest = $this->get_endpoint_manifest();
+                $is_admin = current_user_can('manage_options');
+                $logged   = is_user_logged_in();
+
+                $nonce_groups = [];
+                $walk = function ($node) use (&$walk, &$nonce_groups) {
+                    if (is_array($node)) {
+                        if (isset($node['nonce']) && is_string($node['nonce'])) {
+                            $nonce_groups[$node['nonce']] = true;
+                            return;
+                        }
+                        foreach ($node as $child) { $walk($child); }
+                    }
+                };
+                $walk($manifest);
+                $nonces = [];
+                foreach (array_keys($nonce_groups) as $g) { $nonces[$g] = wp_create_nonce($g); }
+
+                return [
+                    'bridge_version' => defined('AI_CHAT_PERSONA_PRO_VERSION') ? AI_CHAT_PERSONA_PRO_VERSION : '12.3',
+                    'contract_hash'  => md5(wp_json_encode($manifest)),
+                    'endpoints'      => $manifest,
+                    'nonces'         => $nonces,
+                    'can' => [
+                        'admin'  => $is_admin,
+                        'upload' => $logged,
+                        'voice'  => $logged,
+                        'login'  => !$logged,
+                    ],
+                    'session_id'     => 'sess_' . wp_generate_uuid4(),
+                ];
+            },
+        ]);
     }
 
     /**
