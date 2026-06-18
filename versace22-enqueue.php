@@ -503,7 +503,7 @@ if (!function_exists('versace22_render_app')) {
             'plugin_id'         => $plugin_id,
             'plugin_version'    => $plugin_version,
             'integration_mode'  => $integration_mode,
-            'bridge_version'    => 'v12',
+            'bridge_version'    => 'v12.3',
             'endpoint_manifest' => versace22_get_endpoint_manifest(),
 
             // Back-compat single-nonce field (chat)
@@ -562,10 +562,10 @@ if (!function_exists('versace22_render_app')) {
                 . 'html{margin-top:0!important;}#wpadminbar{display:none!important;}'
                 . 'body > *:not(#' . $wrapper_id . '){display:none!important;}'
                 . '#' . $wrapper_id . '{position:fixed!important;top:0!important;right:0!important;bottom:0!important;left:0!important;'
-                . 'width:100vw!important;width:100dvw!important;height:100vh!important;height:100dvh!important;'
+                . 'width:100vw!important;width:100dvw!important;height:100vh!important;height:100svh!important;height:100dvh!important;height:var(--aicpp-viewport-height,100dvh)!important;'
                 . 'max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;'
-                . 'overflow:hidden!important;z-index:2147483000!important;background:#fff!important;}'
-                . '#' . $root_id . '{width:100%!important;height:100%!important;}</style>';
+                . 'overflow:hidden!important;z-index:2147483000!important;background:#090606!important;}'
+                . '#' . $root_id . '{width:100%!important;height:100%!important;height:var(--aicpp-viewport-height,100dvh)!important;min-height:0!important;overflow:hidden!important;}</style>';
             $wrapper = '<div id="' . esc_attr($wrapper_id) . '" data-fullscreen="1"><div id="' . esc_attr($root_id) . '"></div></div>';
         } else {
             $inline_css = '<style id="versace22-chat-inline-css">'

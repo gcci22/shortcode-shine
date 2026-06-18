@@ -20,6 +20,7 @@ import {
   isPreviewMock,
   getMyPersonasFromWP,
   getWPSessionId,
+  newWPSession,
   parseArtifactsFromContent,
   ParsedArtifact,
 } from '@/lib/wp-api';
@@ -111,7 +112,7 @@ const Index = () => {
   const handleNewConversation = () => {
     setActiveConvId(null);
     setCurrentMessages([]);
-    setSessionId('sess_' + crypto.randomUUID());
+    setSessionId(wpMode ? newWPSession() : 'sess_' + crypto.randomUUID());
     setSidebarOpen(false);
     setActiveView('chat');
     setActiveArtifact(null);
@@ -300,7 +301,7 @@ const Index = () => {
     : selectedPersona?.name || 'AI Assistant';
 
   return (
-    <div className="flex h-dvh bg-background overflow-hidden">
+    <div className="flex h-[var(--aicpp-viewport-height,100dvh)] min-h-0 bg-background overflow-hidden">
       <ChatSidebar
         conversations={conversations}
         personas={personas}
@@ -401,7 +402,7 @@ const Index = () => {
               </div>
             )}
 
-             <div className="shrink-0 pb-4 pt-2">
+             <div className="shrink-0 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-2">
                <ChatInput onSend={handleSend} disabled={isTyping} onNewChat={handleNewConversation} requireAuth={requireWordPressAuth && !wpLoggedIn} onRequireAuth={() => setWpAuthOpen(true)} />
             </div>
           </>

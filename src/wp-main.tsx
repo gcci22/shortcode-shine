@@ -20,6 +20,20 @@ import "./wp-index.css";
 
 const queryClient = new QueryClient();
 
+function installAicppViewportHeightVar() {
+  const apply = () => {
+    const visualHeight = window.visualViewport?.height;
+    const height = Math.max(320, Math.round(visualHeight || window.innerHeight || 0));
+    document.documentElement.style.setProperty("--aicpp-viewport-height", `${height}px`);
+  };
+
+  apply();
+  window.addEventListener("resize", apply, { passive: true });
+  window.addEventListener("orientationchange", apply, { passive: true });
+  window.visualViewport?.addEventListener("resize", apply, { passive: true });
+  window.visualViewport?.addEventListener("scroll", apply, { passive: true });
+}
+
 /**
  * In WordPress mode, we bypass Supabase auth entirely.
  * The WPAuthProvider gives the app access to WP user state.
@@ -131,4 +145,5 @@ function aicppBoot() {
   }
 }
 
+installAicppViewportHeightVar();
 aicppBoot();

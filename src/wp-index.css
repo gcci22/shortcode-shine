@@ -48,6 +48,10 @@
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   pointer-events: auto;
+  width: 100%;
+  height: var(--aicpp-viewport-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
 }
 
 #versace22-chat-root *,

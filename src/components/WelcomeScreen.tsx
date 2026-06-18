@@ -37,7 +37,7 @@ const suggestions: Record<string, string[]> = {
 
 export function WelcomeScreen({ personaName, onSendSuggestion }: WelcomeScreenProps) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 pb-8">
+    <div className="flex-1 min-h-0 flex flex-col items-center justify-start sm:justify-center px-4 pt-20 pb-6 sm:pt-0 sm:pb-8">
       <div
         className="text-center space-y-4"
         style={{ animation: 'fade-up 0.6s cubic-bezier(0.16,1,0.3,1) 0.1s both' }}
