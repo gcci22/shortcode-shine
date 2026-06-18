@@ -119,15 +119,40 @@ function resolve(id: string): { action: string; nonce: string } {
   return { action, nonce: nonceVal };
 }
 
-/** Force a single full reload to mint fresh nonces (no client-side mint possible). */
+/**
+ * Report Part 3B: silent nonce healing via the plugin's REST contract route.
+ * If the route is unreachable (older plugin), fall back to a single page reload
+ * so behavior degrades gracefully instead of looping.
+ */
+let _lastContractHash: string | null = null;
 async function aicppRefreshHandshake(): Promise<boolean> {
   try {
-    if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem("aicpp_reloaded_for_nonce")) {
-      sessionStorage.setItem("aicpp_reloaded_for_nonce", "1");
-      location.reload();
+    const h = hs();
+    const restBase = (h.rest_url || "/wp-json/").replace(/\/?$/, "/");
+    const res = await fetch(`${restBase}aicpp/v1/contract`, { credentials: "same-origin" });
+    if (!res.ok) throw new Error("contract route unavailable");
+    const c = await res.json();
+    if (c && typeof c === "object") {
+      if (c.nonces)    h.nonces = c.nonces;
+      if (c.endpoints) h.endpoints = c.endpoints;
+      if (c.can)       h.can = c.can;
+      if (_lastContractHash && c.contract_hash && c.contract_hash !== _lastContractHash) {
+        // eslint-disable-next-line no-console
+        console.warn("[aicpp] contract drift detected — UI re-synced to plugin authority.");
+      }
+      _lastContractHash = c.contract_hash || _lastContractHash;
+      return true;
     }
-  } catch {}
-  return false;
+    return false;
+  } catch {
+    try {
+      if (typeof sessionStorage !== "undefined" && !sessionStorage.getItem("aicpp_reloaded_for_nonce")) {
+        sessionStorage.setItem("aicpp_reloaded_for_nonce", "1");
+        location.reload();
+      }
+    } catch {}
+    return false;
+  }
 }
 
 /** Core call: POST FormData to admin-ajax, parse wp_send_json, retry once on stale nonce. */
@@ -152,6 +177,7 @@ export async function aicppCall(
   const res = await fetch(h.ajaxurl, { method: "POST", body: fd, credentials: "same-origin" });
   const text = await res.text();
 
+  // WordPress's check_ajax_referer failure can return HTTP 403 OR a body of "-1" with status 200.
   if ((res.status === 403 || text.trim() === "-1") && !_retried) {
     if (await aicppRefreshHandshake()) return aicppCall(id, payload, files, true);
     throw new Error("Refreshing session…");
@@ -193,7 +219,10 @@ export function sessionId(): string {
   try {
     let s = localStorage.getItem(SESSION_KEY);
     if (!s) {
-      s = hs().session_id || ("sess_" + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      const rand = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      s = hs().session_id || ("sess_" + rand);
       localStorage.setItem(SESSION_KEY, s);
     }
     return s;
@@ -204,7 +233,10 @@ export function sessionId(): string {
 
 /** Start a fresh session id (clears persistence). */
 export function newSession(): string {
-  const s = "sess_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const rand = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const s = "sess_" + rand;
   try { localStorage.setItem(SESSION_KEY, s); } catch {}
   return s;
 }
