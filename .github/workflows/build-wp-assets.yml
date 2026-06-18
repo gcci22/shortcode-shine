@@ -18,7 +18,7 @@ jobs:
         run: npm install
 
       - name: Build assets for WordPress
-        run: npx vite build --config vite.config.wp.ts
+        run: npm run build:wp
 
       - name: Prepare WP files
         run: |
