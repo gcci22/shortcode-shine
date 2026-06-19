@@ -348,7 +348,12 @@ const Index = () => {
           </div>
           {wpMode && wpLoggedIn ? (
             <button
-              onClick={signOut}
+              onClick={() => {
+                const ok = window.confirm(
+                  'Signing out will end your WordPress session on this device. Continue?'
+                );
+                if (ok) signOut();
+              }}
               className="p-2 rounded-lg hover:bg-muted transition-colors shrink-0"
               title="Sign out"
             >
