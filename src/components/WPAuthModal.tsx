@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { loginUserWP, registerUserWP, signInWithGoogleWP, isPreviewMock, isWordPress } from '@/lib/wp-api';
+import { loginUserWP, registerUserWP, signInWithGoogleWP, isPreviewMock, isWordPress, hasWPGoogleLogin } from '@/lib/wp-api';
 import { supabase } from '@/integrations/supabase/client';
 import { lovable } from '@/integrations/lovable';
 import { toast } from 'sonner';
@@ -20,8 +20,10 @@ export function WPAuthModal({ open, onClose, dismissible = true }: WPAuthModalPr
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const previewMock = isPreviewMock();
-  // Always enable Google. On WP, signInWithGoogleWP will fall back to wp-login.php?loginSocial=google.
-  const googleEnabled = true;
+  // Only enable Google when the WP bridge actually exposes a Google login URL
+  // (Nextend Social Login or a custom filter). Otherwise the button would
+  // bounce the user to wp-login.php, which is not what we want.
+  const googleEnabled = previewMock || hasWPGoogleLogin();
 
   if (!open) return null;
 

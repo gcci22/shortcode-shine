@@ -4,6 +4,7 @@ import { Conversation, Persona } from '@/lib/types';
 import { ConversationFolders } from './ConversationFolders';
 import { useTheme } from '@/hooks/useTheme';
 import { ProjectsSection } from './ProjectsSection';
+import { isWordPress, can } from '@/lib/wp-api';
 
 export type SidebarView = 'chat' | 'leaderboard' | 'profile' | 'refer' | 'personas' | 'memories';
 
@@ -26,13 +27,13 @@ interface ChatSidebarProps {
   onOpenAuth?: () => void;
 }
 
-const navItems = [
+const baseNavItems = [
   { icon: MessageCircle, label: 'Chat', action: 'chat' },
   { icon: Sparkles, label: 'Personas', action: 'personas' },
   { icon: Trophy, label: 'Leaderboard', badge: 'BETA', action: 'leaderboard' },
   { icon: User, label: 'Profile', action: 'profile' },
   { icon: Gift, label: 'Refer for rewards', action: 'refer' },
-  { icon: Brain, label: 'Memories', action: 'memories' },
+  { icon: Brain, label: 'Memories', action: 'memories', adminOnly: true },
   { icon: Globe, label: 'Contact us', expandable: true, action: 'findus' },
 ];
 
@@ -56,6 +57,11 @@ export function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [findUsOpen, setFindUsOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
+
+  // Hide admin-only entries (e.g. Memories) for non-admin WP users to avoid 403s.
+  const wpMode = isWordPress();
+  const isAdmin = wpMode ? can('admin') : true;
+  const navItems = baseNavItems.filter((item) => !item.adminOnly || isAdmin);
 
   const filtered = conversations.filter(c =>
     c.title.toLowerCase().includes(searchQuery.toLowerCase())

@@ -615,11 +615,10 @@ export async function signInWithGoogleWP(): Promise<void> {
   }
 
   if (!config.googleLoginUrl) {
-    // Fallback: most WP social-login plugins expose Google via wp-login.php?loginSocial=google
-    const origin = window.location.origin;
-    const redirect = encodeURIComponent(window.location.href);
-    window.location.href = `${origin}/wp-login.php?loginSocial=google&redirect_to=${redirect}`;
-    return;
+    // Do NOT silently redirect to wp-login.php — the site owner has not
+    // configured a Google login URL, and an unintended redirect breaks the
+    // chat experience. Surface a clear error instead.
+    throw new Error('Google sign-in is not configured for this site.');
   }
 
   window.location.href = config.googleLoginUrl;

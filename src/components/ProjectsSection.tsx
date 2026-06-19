@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, FolderPlus, Folder, Trash2 } from 'lucide-react';
 import {
   WPProject, getProjectsWP, createProjectWP, deleteProjectWP,
-  isWordPress,
+  isWordPress, can,
 } from '@/lib/wp-api';
 import { toast } from 'sonner';
 
@@ -18,6 +18,9 @@ export function ProjectsSection() {
   const [loading, setLoading] = useState(false);
 
   if (!isWordPress()) return null;
+  // Projects CRUD requires admin (manage_options). Hide entirely for
+  // non-admins to prevent 403 errors on save.
+  if (!can('admin') && !can('create_project')) return null;
 
   const refresh = async () => {
     setLoading(true);
