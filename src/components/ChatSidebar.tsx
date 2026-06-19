@@ -216,7 +216,16 @@ export function ChatSidebar({
               )}
               <span className="text-sm font-medium text-foreground flex-1 truncate">{userName}</span>
               {onSignOut && (
-                <button onClick={onSignOut} className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors" title="Sign out">
+                <button
+                  onClick={() => {
+                    const ok = window.confirm(
+                      'Signing out will end your WordPress session on this device. Continue?'
+                    );
+                    if (ok) onSignOut();
+                  }}
+                  className="p-1.5 rounded-md hover:bg-sidebar-accent transition-colors"
+                  title="Sign out"
+                >
                   <LogOut className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
