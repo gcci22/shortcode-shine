@@ -10,7 +10,6 @@ import { ArtifactCanvas } from '@/components/ArtifactCanvas';
 import { WPAuthModal } from '@/components/WPAuthModal';
 import { SpecializedModesBar, SpecializedMode, SPECIALIZED_MODES } from '@/components/SpecializedModes';
 import { LeaderboardView, ProfileView, ReferView } from '@/components/SidebarViews';
-import { StudioView } from '@/components/StudioView';
 import { DEFAULT_PERSONAS, Message, Persona, MainCharacter } from '@/lib/types';
 import {
   sendMessageToWP,
@@ -71,6 +70,7 @@ const Index = () => {
   // Load personas from WP on mount
   useEffect(() => {
     if (!wpMode) return;
+    if (!wpLoggedIn) return;
     getMyPersonasFromWP().then(({ personas: wpPersonas, main_character }) => {
       const mapped: Persona[] = wpPersonas.map(p => ({
         id: String(p.id),
@@ -98,8 +98,8 @@ const Index = () => {
         setSelectedPersona(mapped[0]);
         setIsMainChatMode(false);
       }
-    });
-  }, [wpMode]);
+    }).catch((err) => console.warn('Failed to load WP personas:', err));
+  }, [wpMode, wpLoggedIn]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -169,6 +169,16 @@ const Index = () => {
       setWpAuthOpen(true);
     }
   }, [requireWordPressAuth, wpLoggedIn]);
+
+  // Hard gate: when WP auth is required and the user is logged out, render
+  // only the auth modal. No sidebar, no chat, no background interactions.
+  if (requireWordPressAuth && !wpLoggedIn) {
+    return (
+      <div className="flex h-[var(--aicpp-viewport-height,100dvh)] min-h-0 bg-background items-center justify-center">
+        <WPAuthModal open={true} onClose={() => {}} dismissible={false} />
+      </div>
+    );
+  }
 
   const handleSend = async (
     text: string,
@@ -353,8 +363,6 @@ const Index = () => {
           <ProfileView onBackToChat={() => setActiveView('chat')} />
         ) : activeView === 'refer' ? (
           <ReferView onBackToChat={() => setActiveView('chat')} />
-        ) : activeView === 'studio' ? (
-          <StudioView onBackToChat={() => setActiveView('chat')} />
         ) : activeView === 'personas' ? (
           <PersonaGallery
             personas={personas}

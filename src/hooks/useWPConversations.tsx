@@ -20,6 +20,9 @@ export function useWPConversations() {
   const [loading, setLoading] = useState(false);
 
   const fetchConversations = useCallback(async () => {
+    // Skip when WP user is not logged in to avoid 400/403 toasts.
+    const w = window as any;
+    if (w?.versace22_chat && !w.versace22_chat.user_logged_in) return;
     setLoading(true);
     try {
       const wpConvs = await getConversationsFromWP();
