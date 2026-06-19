@@ -615,7 +615,11 @@ export async function signInWithGoogleWP(): Promise<void> {
   }
 
   if (!config.googleLoginUrl) {
-    throw new Error('Google sign-in is not configured in WordPress yet');
+    // Fallback: most WP social-login plugins expose Google via wp-login.php?loginSocial=google
+    const origin = window.location.origin;
+    const redirect = encodeURIComponent(window.location.href);
+    window.location.href = `${origin}/wp-login.php?loginSocial=google&redirect_to=${redirect}`;
+    return;
   }
 
   window.location.href = config.googleLoginUrl;
