@@ -169,6 +169,16 @@ const Index = () => {
     }
   }, [requireWordPressAuth, wpLoggedIn]);
 
+  // Hard gate: when WP auth is required and the user is logged out, render
+  // only the auth modal. No sidebar, no chat, no background interactions.
+  if (requireWordPressAuth && !wpLoggedIn) {
+    return (
+      <div className="flex h-[var(--aicpp-viewport-height,100dvh)] min-h-0 bg-background items-center justify-center">
+        <WPAuthModal open={true} onClose={() => {}} dismissible={false} />
+      </div>
+    );
+  }
+
   const handleSend = async (
     text: string,
     attachment?: { url: string; type: string; data?: string } | null,
