@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { hasWPGoogleLogin, loginUserWP, registerUserWP, signInWithGoogleWP, isPreviewMock } from '@/lib/wp-api';
+import { loginUserWP, registerUserWP, signInWithGoogleWP, isPreviewMock, isWordPress } from '@/lib/wp-api';
 import { supabase } from '@/integrations/supabase/client';
 import { lovable } from '@/integrations/lovable';
 import { toast } from 'sonner';
@@ -8,9 +8,10 @@ import { toast } from 'sonner';
 interface WPAuthModalProps {
   open: boolean;
   onClose: () => void;
+  dismissible?: boolean;
 }
 
-export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
+export function WPAuthModal({ open, onClose, dismissible = true }: WPAuthModalProps) {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [login, setLogin] = useState('');
   const [email, setEmail] = useState('');
@@ -19,8 +20,8 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const previewMock = isPreviewMock();
-  // In the preview, Google works via Supabase OAuth. On WP, requires plugin config.
-  const googleEnabled = previewMock || hasWPGoogleLogin();
+  // Always enable Google. On WP, signInWithGoogleWP will fall back to wp-login.php?loginSocial=google.
+  const googleEnabled = true;
 
   if (!open) return null;
 
@@ -138,12 +139,14 @@ export function WPAuthModal({ open, onClose }: WPAuthModalProps) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
       <div className="relative w-full max-w-sm bg-card/95 border border-border rounded-[22px] p-6 space-y-4 shadow-2xl">
-        <button
-          onClick={onClose}
-          className="absolute right-3 top-3 p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {dismissible && (
+          <button
+            onClick={onClose}
+            className="absolute right-3 top-3 p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
 
         <div className="space-y-1 text-center">
           <div className="text-xl font-extrabold text-primary">VERSACE22 AI</div>
