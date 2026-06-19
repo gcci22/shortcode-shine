@@ -70,6 +70,7 @@ const Index = () => {
   // Load personas from WP on mount
   useEffect(() => {
     if (!wpMode) return;
+    if (!wpLoggedIn) return;
     getMyPersonasFromWP().then(({ personas: wpPersonas, main_character }) => {
       const mapped: Persona[] = wpPersonas.map(p => ({
         id: String(p.id),
@@ -97,8 +98,8 @@ const Index = () => {
         setSelectedPersona(mapped[0]);
         setIsMainChatMode(false);
       }
-    });
-  }, [wpMode]);
+    }).catch((err) => console.warn('Failed to load WP personas:', err));
+  }, [wpMode, wpLoggedIn]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
