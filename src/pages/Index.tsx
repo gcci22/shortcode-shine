@@ -10,7 +10,6 @@ import { ArtifactCanvas } from '@/components/ArtifactCanvas';
 import { WPAuthModal } from '@/components/WPAuthModal';
 import { SpecializedModesBar, SpecializedMode, SPECIALIZED_MODES } from '@/components/SpecializedModes';
 import { LeaderboardView, ProfileView, ReferView } from '@/components/SidebarViews';
-import { StudioView } from '@/components/StudioView';
 import { DEFAULT_PERSONAS, Message, Persona, MainCharacter } from '@/lib/types';
 import {
   sendMessageToWP,
@@ -353,8 +352,6 @@ const Index = () => {
           <ProfileView onBackToChat={() => setActiveView('chat')} />
         ) : activeView === 'refer' ? (
           <ReferView onBackToChat={() => setActiveView('chat')} />
-        ) : activeView === 'studio' ? (
-          <StudioView onBackToChat={() => setActiveView('chat')} />
         ) : activeView === 'personas' ? (
           <PersonaGallery
             personas={personas}
