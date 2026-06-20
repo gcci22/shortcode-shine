@@ -650,16 +650,8 @@ export async function sendMainChatToWP(
     return mockDelay({ message: reply, conversation_id: conversation.id, artifacts: extractArtifacts(reply) });
   }
 
-  const formData = new FormData();
-  formData.append('action', 'aicpp_chat_main');
-  formData.append('nonce', config.nonce);
-  formData.append('message', message);
-  formData.append('session_id', sessionId);
-  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error(`Server error: ${response.status}`);
-  const result = await response.json();
-  if (!result.success) throw new Error(result.data?.message || 'Main chat request failed');
-  return result.data;
+  const data = await wpFetch('aicpp_chat_main', { message, session_id: sessionId });
+  return data;
 }
 
 export async function sendPersonaChatToWP(
@@ -682,29 +674,20 @@ export async function sendPersonaChatToWP(
     return mockDelay({ message: reply, conversation_id: conversation.id, artifacts: extractArtifacts(reply) });
   }
 
-  const formData = new FormData();
-  formData.append('action', 'aicpp_chat');
-  formData.append('nonce', config.nonce);
-  formData.append('persona_id', String(personaId));
-  formData.append('message', message);
-  formData.append('session_id', sessionId);
-  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
-  if (!response.ok) throw new Error(`Server error: ${response.status}`);
-  const result = await response.json();
-  if (!result.success) throw new Error(result.data?.message || 'Chat request failed');
-  return result.data;
+  const data = await wpFetch('aicpp_chat', { persona_id: String(personaId), message, session_id: sessionId });
+  return data;
 }
 
 export async function getMyPersonasFromWP(): Promise<{ personas: WPPersonaInfo[]; main_character: WPMainCharacter | null }> {
   const config = getWPConfig();
   if (!config) return { personas: [], main_character: null };
   if (isMockWP(config)) return mockDelay({ personas: mockPersonas, main_character: mockMainCharacter });
-  const formData = new FormData();
-  formData.append('action', 'aicpp_get_my_personas');
-  formData.append('nonce', config.nonce);
-  const response = await fetch(config.ajaxurl, { method: 'POST', body: formData });
-  const result = await response.json();
-  return result.success ? { personas: result.data.personas || [], main_character: result.data.main_character || null } : { personas: [], main_character: null };
+  try {
+    const data = await wpFetch('aicpp_get_my_personas', {});
+    return { personas: data.personas || [], main_character: data.main_character || null };
+  } catch {
+    return { personas: [], main_character: null };
+  }
 }
 
 export async function uploadFileToWP(file: File): Promise<{ file_url: string; file_name: string; file_type: string; file_data?: string }> {
